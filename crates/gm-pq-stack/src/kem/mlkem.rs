@@ -61,7 +61,9 @@ impl Kem for MlKem768Kem {
 
     fn validate_public(pk: &[u8]) -> Result<()> {
         if pk.len() != Self::PUBLIC_KEY_LEN {
-            return Err(Error::InvalidEncoding("ML-KEM public key must be 1184 bytes"));
+            return Err(Error::InvalidEncoding(
+                "ML-KEM public key must be 1184 bytes",
+            ));
         }
         Ok(())
     }

@@ -95,14 +95,25 @@ pub fn hs_accept(
     msg: &[u8],
 ) -> Result<(SessionCipher, Vec<u8>), CryptoError> {
     let (peer_pub, sig) = parse_hs_msg(msg, HS_KIND_INIT)?;
-    if !verify(peer, &sign_ctx(b"p2p-mesh/hs-init", &peer_pub, peer, &me.node_id()), &sig) {
-        return Err(CryptoError("hs-init signature verification failed (wrong identity or tampered)"));
+    if !verify(
+        peer,
+        &sign_ctx(b"p2p-mesh/hs-init", &peer_pub, peer, &me.node_id()),
+        &sig,
+    ) {
+        return Err(CryptoError(
+            "hs-init signature verification failed (wrong identity or tampered)",
+        ));
     }
     let (eph, eph_pub) = new_eph();
     let shared = eph.diffie_hellman(&x25519_dalek::PublicKey::from(peer_pub));
     // Responder view: send with k_r2i, receive with k_i2r
     let cipher = derive(shared.as_bytes(), peer, &me.node_id(), Role::Responder);
-    let sig_r = me.sign(&sign_ctx(b"p2p-mesh/hs-resp", &eph_pub, &me.node_id(), peer));
+    let sig_r = me.sign(&sign_ctx(
+        b"p2p-mesh/hs-resp",
+        &eph_pub,
+        &me.node_id(),
+        peer,
+    ));
     let mut resp = Vec::with_capacity(HS_MSG_LEN);
     resp.extend_from_slice(&[HS_TAG, HS_KIND_RESP]);
     resp.extend_from_slice(&eph_pub);
@@ -114,12 +125,25 @@ pub fn hs_accept(
 /// Initiator handles resp: verify signature -> derive the session
 pub fn hs_finish(me: &NodeIdentity, hs: HsState, msg: &[u8]) -> Result<SessionCipher, CryptoError> {
     let (peer_pub, sig) = parse_hs_msg(msg, HS_KIND_RESP)?;
-    if !verify(&hs.peer, &sign_ctx(b"p2p-mesh/hs-resp", &peer_pub, &hs.peer, &me.node_id()), &sig) {
-        return Err(CryptoError("hs-resp signature verification failed (wrong identity or tampered)"));
+    if !verify(
+        &hs.peer,
+        &sign_ctx(b"p2p-mesh/hs-resp", &peer_pub, &hs.peer, &me.node_id()),
+        &sig,
+    ) {
+        return Err(CryptoError(
+            "hs-resp signature verification failed (wrong identity or tampered)",
+        ));
     }
-    let shared = hs.eph.diffie_hellman(&x25519_dalek::PublicKey::from(peer_pub));
+    let shared = hs
+        .eph
+        .diffie_hellman(&x25519_dalek::PublicKey::from(peer_pub));
     // Initiator view: send with k_i2r, receive with k_r2i
-    Ok(derive(shared.as_bytes(), &me.node_id(), &hs.peer, Role::Initiator))
+    Ok(derive(
+        shared.as_bytes(),
+        &me.node_id(),
+        &hs.peer,
+        Role::Initiator,
+    ))
 }
 
 enum Role {

@@ -17,7 +17,10 @@ fn window_accepts_in_order() {
 fn window_rejects_exact_replay() {
     let mut w = ReplayWindow::new();
     w.check_and_mark(7).unwrap();
-    assert!(w.check_and_mark(7).is_err(), "exact replay must be rejected");
+    assert!(
+        w.check_and_mark(7).is_err(),
+        "exact replay must be rejected"
+    );
 }
 
 #[test]
@@ -36,7 +39,10 @@ fn window_rejects_too_old() {
     let mut w = ReplayWindow::new();
     w.check_and_mark(0).unwrap();
     w.check_and_mark(1000).unwrap(); // window slides to 1000
-    assert!(w.check_and_mark(0).is_err(), "old sequence slid out of the window must be rejected");
+    assert!(
+        w.check_and_mark(0).is_err(),
+        "old sequence slid out of the window must be rejected"
+    );
     assert!(w.check_and_mark(999).is_ok(), "still inside the window");
 }
 

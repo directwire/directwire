@@ -25,11 +25,7 @@ async fn spawn_relay() -> SocketAddr {
 }
 
 /// Wait for an event in the stream matching a predicate (with timeout)
-async fn wait_event(
-    n: &mut Node,
-    pred: impl Fn(&NodeEvent) -> bool,
-    what: &str,
-) -> NodeEvent {
+async fn wait_event(n: &mut Node, pred: impl Fn(&NodeEvent) -> bool, what: &str) -> NodeEvent {
     tokio::time::timeout(T, async {
         loop {
             match n.next_event().await {
@@ -64,7 +60,15 @@ async fn relay_fallback_when_punch_disabled() {
     // b must receive the plaintext via the relay (end-to-end decryption succeeded)
     match wait_event(
         &mut b,
-        |e| matches!(e, NodeEvent::Message { via: PathKind::Relay, .. }),
+        |e| {
+            matches!(
+                e,
+                NodeEvent::Message {
+                    via: PathKind::Relay,
+                    ..
+                }
+            )
+        },
         "b receives message via relay",
     )
     .await
@@ -107,7 +111,9 @@ async fn punch_then_upgrade_to_direct() {
                     assert_eq!(payload, b"msg-1-via-relay");
                     got_msg = true;
                 }
-                Some(NodeEvent::PunchResult { direct: Some(_), .. }) => got_punch = true,
+                Some(NodeEvent::PunchResult {
+                    direct: Some(_), ..
+                }) => got_punch = true,
                 Some(NodeEvent::DirectReady { .. }) => got_direct = true,
                 Some(_) => {}
                 None => panic!("b event channel closed"),
@@ -122,7 +128,9 @@ async fn punch_then_upgrade_to_direct() {
         let (mut got_punch, mut got_direct, mut got_switch) = (false, false, false);
         while !(got_punch && got_direct && got_switch) {
             match a.next_event().await {
-                Some(NodeEvent::PunchResult { direct: Some(_), .. }) => got_punch = true,
+                Some(NodeEvent::PunchResult {
+                    direct: Some(_), ..
+                }) => got_punch = true,
                 Some(NodeEvent::DirectReady { .. }) => got_direct = true,
                 Some(NodeEvent::PathSwitch { from, to, .. }) if to == PathKind::Direct => {
                     assert_eq!(from, PathKind::Relay);
@@ -140,7 +148,15 @@ async fn punch_then_upgrade_to_direct() {
     a.send_to(idb, b"msg-2-via-direct".to_vec()).await;
     match wait_event(
         &mut b,
-        |e| matches!(e, NodeEvent::Message { via: PathKind::Direct, .. }),
+        |e| {
+            matches!(
+                e,
+                NodeEvent::Message {
+                    via: PathKind::Direct,
+                    ..
+                }
+            )
+        },
         "b receives message via direct",
     )
     .await
@@ -154,7 +170,12 @@ async fn punch_then_upgrade_to_direct() {
 
     // bidirectional: b should also have switched to direct (a answers b's relay ping; direct RTT gets sampled)
     b.send_to(ida, b"reply".to_vec()).await;
-    wait_event(&mut a, |e| matches!(e, NodeEvent::Message { .. }), "a receives reply").await;
+    wait_event(
+        &mut a,
+        |e| matches!(e, NodeEvent::Message { .. }),
+        "a receives reply",
+    )
+    .await;
 }
 
 /// The relay only ever sees ciphertext: forwarded payloads share no plaintext bytes, and tampering is rejected by the peer
@@ -177,7 +198,12 @@ async fn relay_sees_only_ciphertext() {
     let secret = b"TOP-SECRET-PLAINTEXT";
     a.send_to(idb, secret.to_vec()).await;
 
-    wait_event(&mut b, |e| matches!(e, NodeEvent::Message { .. }), "b receives message").await;
+    wait_event(
+        &mut b,
+        |e| matches!(e, NodeEvent::Message { .. }),
+        "b receives message",
+    )
+    .await;
 
     // Check relay stats: payload length = plaintext + 1 (inner tag) + 16 (AEAD tag)
     // "Ciphertext only" is really guaranteed by the AEAD (crypto unit tests already cover tamper rejection);

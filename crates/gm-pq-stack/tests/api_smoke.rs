@@ -6,9 +6,7 @@
 use std::net::{TcpListener, TcpStream};
 use std::time::Duration;
 
-use gm_pq_stack::api::{
-    ServerConfig, client_connect_full, client_connect_resume, server_accept,
-};
+use gm_pq_stack::api::{ServerConfig, client_connect_full, client_connect_resume, server_accept};
 use gm_pq_stack::handshake::cookie::CookieIssuer;
 use gm_pq_stack::handshake::psk::{TicketCache, TicketIssuer};
 use gm_pq_stack::kem::{DefaultHybrid, Kem};
@@ -58,7 +56,8 @@ fn api_end_to_end_full_resume_replay() {
                 client_tag: &tag,
                 ticket_ttl_secs: 3600,
             };
-            let out = server_accept(s, server_sk.clone(), server_pk_for_thread.clone(), &mut cfg).unwrap();
+            let out = server_accept(s, server_sk.clone(), server_pk_for_thread.clone(), &mut cfg)
+                .unwrap();
             let report = ServerReport {
                 resumed: out.resumed,
                 early_data: out.early_data,
@@ -83,9 +82,15 @@ fn api_end_to_end_full_resume_replay() {
     )
     .unwrap();
     assert!(!out1.resumed);
-    let (ticket, psk) = out1.resumption.expect("the server must push a resumption ticket");
+    let (ticket, psk) = out1
+        .resumption
+        .expect("the server must push a resumption ticket");
     let mut ch1 = out1.channel;
-    assert_eq!(ch1.peer_static_key(), &server_pk[..], "peer public key from the client's perspective");
+    assert_eq!(
+        ch1.peer_static_key(),
+        &server_pk[..],
+        "peer public key from the client's perspective"
+    );
     ch1.send_msg(b"hello-1").unwrap();
     assert_eq!(ch1.recv_msg().unwrap(), b"hello-1");
     let sid1 = *ch1.session_id();
@@ -118,7 +123,10 @@ fn api_end_to_end_full_resume_replay() {
         Some(b"REPLAYED-OP"),
     )
     .unwrap();
-    assert!(!out3.resumed, "a replayed ticket must be rejected and fall back to a full handshake");
+    assert!(
+        !out3.resumed,
+        "a replayed ticket must be rejected and fall back to a full handshake"
+    );
     assert!(!out3.early_data_accepted);
     let mut ch3 = out3.channel;
     ch3.send_msg(b"hello-3").unwrap();
@@ -126,20 +134,32 @@ fn api_end_to_end_full_resume_replay() {
 
     let reports = server.join().unwrap();
     assert!(!reports[0].resumed);
-    assert!(reports[1].resumed, "from the server's perspective, connection 2 is a resumed session");
+    assert!(
+        reports[1].resumed,
+        "from the server's perspective, connection 2 is a resumed session"
+    );
     assert_eq!(
         reports[1].early_data.as_deref(),
         Some(b"IDEMPOTENT-OP".as_slice()),
         "the server must receive the 0-RTT early data"
     );
-    assert!(!reports[2].resumed, "a replayed ticket must not resume successfully");
-    assert_eq!(reports[2].early_data, None, "replayed early data must not be delivered");
+    assert!(
+        !reports[2].resumed,
+        "a replayed ticket must not resume successfully"
+    );
+    assert_eq!(
+        reports[2].early_data, None,
+        "replayed early data must not be delivered"
+    );
 
     // Session ids are consistent, mutually distinct, and the peer public keys are correct
     assert_eq!(reports[0].session_id, sid1);
     assert_ne!(reports[0].session_id, reports[1].session_id);
     assert_ne!(reports[1].session_id, reports[2].session_id);
     for rp in &reports {
-        assert_eq!(rp.peer_static, client_pk, "peer public key from the server's perspective");
+        assert_eq!(
+            rp.peer_static, client_pk,
+            "peer public key from the server's perspective"
+        );
     }
 }

@@ -54,7 +54,9 @@ impl RelayServer {
 
     /// Lightweight stats handle (still queryable after serve() takes ownership)
     pub fn handle(&self) -> RelayHandle {
-        RelayHandle { state: Arc::clone(&self.state) }
+        RelayHandle {
+            state: Arc::clone(&self.state),
+        }
     }
 
     /// Traffic stats snapshot
@@ -111,11 +113,13 @@ async fn handle_conn(stream: TcpStream, state: Arc<Mutex<ServerState>>) -> io::R
     // The first frame must be Hello (register NodeId + candidate addresses)
     let me = match read_frame(&mut rd).await? {
         Some(Frame::Hello { node_id, cands }) => {
-            state
-                .lock()
-                .unwrap()
-                .sessions
-                .insert(node_id, Session { tx: tx.clone(), cands });
+            state.lock().unwrap().sessions.insert(
+                node_id,
+                Session {
+                    tx: tx.clone(),
+                    cands,
+                },
+            );
             state.lock().unwrap().stats.entry(node_id).or_default();
             // STUN-like: echo the observed peer address
             write_frame_chan(
@@ -128,7 +132,13 @@ async fn handle_conn(stream: TcpStream, state: Arc<Mutex<ServerState>>) -> io::R
             node_id
         }
         _ => {
-            write_frame_chan(&tx, Frame::Error { msg: "first frame must be Hello".into() }).await;
+            write_frame_chan(
+                &tx,
+                Frame::Error {
+                    msg: "first frame must be Hello".into(),
+                },
+            )
+            .await;
             drop(tx);
             writer.await.ok();
             return Ok(());
@@ -148,28 +158,53 @@ async fn handle_conn(stream: TcpStream, state: Arc<Mutex<ServerState>>) -> io::R
                 // Broker: cross-send both sides' candidate addresses
                 let (my_cands, target_tx, target_cands) = {
                     let st = state.lock().unwrap();
-                    let my = st.sessions.get(&me).map(|s| s.cands.clone()).unwrap_or_default();
+                    let my = st
+                        .sessions
+                        .get(&me)
+                        .map(|s| s.cands.clone())
+                        .unwrap_or_default();
                     let tgt = st.sessions.get(&target);
-                    (
-                        my,
-                        tgt.map(|s| s.tx.clone()),
-                        tgt.map(|s| s.cands.clone()),
-                    )
+                    (my, tgt.map(|s| s.tx.clone()), tgt.map(|s| s.cands.clone()))
                 };
                 match (target_tx, target_cands) {
                     (Some(ttx), Some(taddrs)) => {
-                        write_frame_chan(&tx, Frame::Exchange { peer: target, cands: taddrs }).await;
-                        write_frame_chan(&ttx, Frame::Exchange { peer: me, cands: my_cands }).await;
+                        write_frame_chan(
+                            &tx,
+                            Frame::Exchange {
+                                peer: target,
+                                cands: taddrs,
+                            },
+                        )
+                        .await;
+                        write_frame_chan(
+                            &ttx,
+                            Frame::Exchange {
+                                peer: me,
+                                cands: my_cands,
+                            },
+                        )
+                        .await;
                     }
                     _ => {
-                        write_frame_chan(&tx, Frame::Error { msg: "target is not online".into() }).await;
+                        write_frame_chan(
+                            &tx,
+                            Frame::Error {
+                                msg: "target is not online".into(),
+                            },
+                        )
+                        .await;
                     }
                 }
             }
             Frame::RelayData { to, payload, .. } => {
                 let from = me; // anti-spoofing: `from` is taken from the connection identity
                 let n = payload.len() as u64;
-                let target_tx = state.lock().unwrap().sessions.get(&to).map(|s| s.tx.clone());
+                let target_tx = state
+                    .lock()
+                    .unwrap()
+                    .sessions
+                    .get(&to)
+                    .map(|s| s.tx.clone());
                 match target_tx {
                     Some(ttx) => {
                         {
@@ -183,7 +218,13 @@ async fn handle_conn(stream: TcpStream, state: Arc<Mutex<ServerState>>) -> io::R
                         write_frame_chan(&ttx, Frame::RelayData { to, from, payload }).await;
                     }
                     None => {
-                        write_frame_chan(&tx, Frame::Error { msg: "recipient is not online".into() }).await;
+                        write_frame_chan(
+                            &tx,
+                            Frame::Error {
+                                msg: "recipient is not online".into(),
+                            },
+                        )
+                        .await;
                     }
                 }
             }

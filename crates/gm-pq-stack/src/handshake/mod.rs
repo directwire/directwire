@@ -202,7 +202,10 @@ impl<K: Kem> Initiator<K> {
 
         // ee: decapsulate with our own ephemeral secret key (under ML-KEM implicit rejection,
         // a tampered ciphertext ⇒ AEAD necessarily fails)
-        let eph_sk = self.eph_sk.as_ref().ok_or(Error::HandshakeState("missing ephemeral secret key"))?;
+        let eph_sk = self
+            .eph_sk
+            .as_ref()
+            .ok_or(Error::HandshakeState("missing ephemeral secret key"))?;
         let ss_ee = Zeroizing::new(K::decapsulate(eph_sk, ct_ee)?);
         self.ss.mix_key(&*ss_ee);
 
@@ -386,7 +389,9 @@ impl<K: Kem> Responder<K> {
     pub fn read_msg3(&mut self, msg: &[u8]) -> Result<Session> {
         let (session, static_plain, _h_sign) = self.read_msg3_inner(msg)?;
         if static_plain.len() != K::PUBLIC_KEY_LEN {
-            return Err(Error::InvalidEncoding("invalid msg3 static public key length"));
+            return Err(Error::InvalidEncoding(
+                "invalid msg3 static public key length",
+            ));
         }
         K::validate_public(&static_plain)?;
         Ok(session)
@@ -403,7 +408,10 @@ impl<K: Kem> Responder<K> {
         let enc_static = &msg[expect..];
 
         // se: decapsulate with the ephemeral secret key; ss: decapsulate with the static secret key
-        let eph_sk = self.eph_sk.take().ok_or(Error::HandshakeState("msg3 read twice"))?;
+        let eph_sk = self
+            .eph_sk
+            .take()
+            .ok_or(Error::HandshakeState("msg3 read twice"))?;
         let ss_se = K::decapsulate(&eph_sk, ct_se)?;
         let ss_ss = K::decapsulate(&self.static_sk, ct_ss)?;
 

@@ -178,7 +178,10 @@ impl PathManager {
     }
 
     fn switch_to(&mut self, to: PathKind, now: Instant) -> PathSwitch {
-        let sw = PathSwitch { from: self.active, to };
+        let sw = PathSwitch {
+            from: self.active,
+            to,
+        };
         self.active = to;
         self.last_switch = now;
         sw

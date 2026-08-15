@@ -63,10 +63,7 @@ impl CookieIssuer {
     fn mac(&self, ts: u64, client_tag: &[u8], e_pk: &[u8]) -> [u8; 32] {
         // Key derivation: HMAC key = SM3(label || secret); domain separation prevents cross-protocol misuse
         let key = sm3(&[HMAC_KEY_LABEL, &*self.secret]);
-        libsmx::sm3::hmac_sm3(
-            &key,
-            &[&ts.to_be_bytes(), client_tag, e_pk].concat(),
-        )
+        libsmx::sm3::hmac_sm3(&key, &[&ts.to_be_bytes(), client_tag, e_pk].concat())
     }
 
     /// Issue a cookie for one msg1

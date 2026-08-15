@@ -85,16 +85,21 @@ fn verify_tls13(
     dss: &DigitallySignedStruct,
 ) -> Result<HandshakeSignatureValid, rustls::Error> {
     if dss.scheme != SignatureScheme::ED25519 {
-        return Err(rustls::Error::General("only ed25519 certificates are supported".into()));
+        return Err(rustls::Error::General(
+            "only ed25519 certificates are supported".into(),
+        ));
     }
-    let id = extract_node_id(cert)
-        .ok_or_else(|| rustls::Error::General("certificate is missing an ed25519 public key".into()))?;
+    let id = extract_node_id(cert).ok_or_else(|| {
+        rustls::Error::General("certificate is missing an ed25519 public key".into())
+    })?;
     let sig: [u8; 64] = dss
         .signature()
         .try_into()
         .map_err(|_| rustls::Error::General("invalid signature length".into()))?;
     if !verify(&id, message, &sig) {
-        return Err(rustls::Error::General("CertificateVerify signature verification failed".into()));
+        return Err(rustls::Error::General(
+            "CertificateVerify signature verification failed".into(),
+        ));
     }
     Ok(HandshakeSignatureValid::assertion())
 }
@@ -114,8 +119,9 @@ impl ServerCertVerifier for NodeServerVerifier {
         _ocsp_response: &[u8],
         _now: UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
-        let id = extract_node_id(end_entity)
-            .ok_or_else(|| rustls::Error::General("peer certificate is missing an ed25519 public key".into()))?;
+        let id = extract_node_id(end_entity).ok_or_else(|| {
+            rustls::Error::General("peer certificate is missing an ed25519 public key".into())
+        })?;
         if id != self.expected {
             return Err(rustls::Error::General(format!(
                 "peer identity mismatch: expected {} got {}",
@@ -171,8 +177,9 @@ impl ClientCertVerifier for NodeClientVerifier {
         _intermediates: &[CertificateDer<'_>],
         _now: UnixTime,
     ) -> Result<ClientCertVerified, rustls::Error> {
-        extract_node_id(end_entity)
-            .ok_or_else(|| rustls::Error::General("client certificate is missing an ed25519 public key".into()))?;
+        extract_node_id(end_entity).ok_or_else(|| {
+            rustls::Error::General("client certificate is missing an ed25519 public key".into())
+        })?;
         Ok(ClientCertVerified::assertion())
     }
 
@@ -207,10 +214,14 @@ pub fn client_config(
     let (cert, key) = node_cert(identity)?;
     let mut cc = rustls::ClientConfig::builder()
         .dangerous()
-        .with_custom_certificate_verifier(Arc::new(NodeServerVerifier { expected: expected_peer }))
+        .with_custom_certificate_verifier(Arc::new(NodeServerVerifier {
+            expected: expected_peer,
+        }))
         .with_client_auth_cert(vec![cert], key)?;
     cc.alpn_protocols = vec![ALPN.to_vec()];
-    Ok(quinn::ClientConfig::new(Arc::new(QuicClientConfig::try_from(cc)?)))
+    Ok(quinn::ClientConfig::new(Arc::new(
+        QuicClientConfig::try_from(cc)?,
+    )))
 }
 
 /// Build the server QUIC config (requires a client certificate)
@@ -220,9 +231,9 @@ pub fn server_config(identity: &NodeIdentity) -> Result<quinn::ServerConfig, Box
         .with_client_cert_verifier(Arc::new(NodeClientVerifier))
         .with_single_cert(vec![cert], key)?;
     sc.alpn_protocols = vec![ALPN.to_vec()];
-    Ok(quinn::ServerConfig::with_crypto(Arc::new(QuicServerConfig::try_from(
-        sc,
-    )?)))
+    Ok(quinn::ServerConfig::with_crypto(Arc::new(
+        QuicServerConfig::try_from(sc)?,
+    )))
 }
 
 /// Create a QUIC endpoint on the same UDP socket used for hole punching (each side acts as client and server)
@@ -250,7 +261,8 @@ pub fn conn_peer_id(conn: &quinn::Connection) -> Option<NodeId> {
 /// Write one message (length-prefixed + payload, then finish)
 pub async fn write_msg(conn: &quinn::Connection, payload: &[u8]) -> Result<(), BoxErr> {
     let (mut send, _recv) = conn.open_bi().await?;
-    send.write_all(&(payload.len() as u32).to_be_bytes()).await?;
+    send.write_all(&(payload.len() as u32).to_be_bytes())
+        .await?;
     send.write_all(payload).await?;
     send.finish()?;
     Ok(())
@@ -264,7 +276,10 @@ pub async fn read_msg(mut recv: quinn::RecvStream) -> io::Result<Vec<u8>> {
         .map_err(|e| io::Error::new(io::ErrorKind::UnexpectedEof, e))?;
     let len = u32::from_be_bytes(len_buf) as usize;
     if len > 4 * 1024 * 1024 {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "message too large"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "message too large",
+        ));
     }
     let mut buf = vec![0u8; len];
     recv.read_exact(&mut buf)

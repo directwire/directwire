@@ -29,29 +29,43 @@ async fn main() {
             println!("[node-b] GM-PQ channel enabled (relay path will use the sm2+ml-kem-768 hybrid handshake)");
         }
     }
-    let mut node = Node::start(identity, cfg).await.expect("node-b start failed");
-    println!("[node-b] NodeId = {} (hex: {})", node.node_id(), node.node_id().to_hex());
+    let mut node = Node::start(identity, cfg)
+        .await
+        .expect("node-b start failed");
+    println!(
+        "[node-b] NodeId = {} (hex: {})",
+        node.node_id(),
+        node.node_id().to_hex()
+    );
     println!("[node-b] waiting for punch and messages...");
 
     while let Some(ev) = node.next_event().await {
         match ev {
-            NodeEvent::PunchResult { peer, direct } => println!(
-                "[node-b] punch result peer={} direct={:?}",
-                peer, direct
-            ),
+            NodeEvent::PunchResult { peer, direct } => {
+                println!("[node-b] punch result peer={} direct={:?}", peer, direct)
+            }
             NodeEvent::DirectReady { peer } => println!("[node-b] QUIC direct ready peer={}", peer),
             NodeEvent::SessionReady { peer, suite } => {
-                println!("[node-b] encrypted session ready peer={} suite={}", peer, suite)
+                println!(
+                    "[node-b] encrypted session ready peer={} suite={}",
+                    peer, suite
+                )
             }
             NodeEvent::PathSwitch { peer, from, to } => {
-                println!("[node-b] * path switch peer={} {:?} -> {:?}", peer, from, to)
+                println!(
+                    "[node-b] * path switch peer={} {:?} -> {:?}",
+                    peer, from, to
+                )
             }
             NodeEvent::RttSample { path, rtt_ms, .. } => {
                 println!("[node-b] probe {:?} rtt={:.2}ms", path, rtt_ms)
             }
             NodeEvent::Message { from, via, payload } => {
                 let text = String::from_utf8_lossy(&payload);
-                println!("[node-b] message from={} via={:?} text={:?}", from, via, text);
+                println!(
+                    "[node-b] message from={} via={:?} text={:?}",
+                    from, via, text
+                );
                 node.send_to(from, format!("ack:{text}").into_bytes()).await;
             }
             NodeEvent::Log(m) => println!("[node-b] log: {m}"),

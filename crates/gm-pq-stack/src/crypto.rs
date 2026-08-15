@@ -80,8 +80,7 @@ impl Aead {
 
     /// Encrypt with a specific sequence number (for tests / replay construction)
     pub fn seal_with_seq(&self, seq: u64, aad: &[u8], plaintext: &[u8]) -> Vec<u8> {
-        let (ct, tag) =
-            libsmx::sm4::sm4_encrypt_gcm(&self.key, &Self::nonce(seq), aad, plaintext);
+        let (ct, tag) = libsmx::sm4::sm4_encrypt_gcm(&self.key, &Self::nonce(seq), aad, plaintext);
         let mut out = Vec::with_capacity(8 + ct.len() + 16);
         out.extend_from_slice(&seq.to_be_bytes());
         out.extend_from_slice(&ct);

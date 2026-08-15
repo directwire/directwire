@@ -35,15 +35,33 @@ const MAX_FRAME: u32 = 4 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Frame {
-    Hello { node_id: NodeId, cands: Candidates },
+    Hello {
+        node_id: NodeId,
+        cands: Candidates,
+    },
     /// STUN-like: the relay echoes the peer's TCP address as observed (the node infers its public IP)
-    HelloAck { observed: SocketAddr },
-    PunchRequest { target: NodeId },
-    Exchange { peer: NodeId, cands: Candidates },
-    RelayData { to: NodeId, from: NodeId, payload: Vec<u8> },
+    HelloAck {
+        observed: SocketAddr,
+    },
+    PunchRequest {
+        target: NodeId,
+    },
+    Exchange {
+        peer: NodeId,
+        cands: Candidates,
+    },
+    RelayData {
+        to: NodeId,
+        from: NodeId,
+        payload: Vec<u8>,
+    },
     StatsQuery,
-    StatsReport { text: String },
-    Error { msg: String },
+    StatsReport {
+        text: String,
+    },
+    Error {
+        msg: String,
+    },
 }
 
 // ---------- encoding helpers ----------
@@ -193,7 +211,9 @@ pub fn decode(buf: &[u8]) -> io::Result<Frame> {
             node_id: c.id()?,
             cands: c.cands()?,
         },
-        TAG_HELLO_ACK => Frame::HelloAck { observed: c.addr()? },
+        TAG_HELLO_ACK => Frame::HelloAck {
+            observed: c.addr()?,
+        },
         TAG_PUNCH_REQ => Frame::PunchRequest { target: c.id()? },
         TAG_EXCHANGE => Frame::Exchange {
             peer: c.id()?,
@@ -251,7 +271,10 @@ mod tests {
                 cands: vec![
                     (SocketAddr::from((Ipv4Addr::LOCALHOST, 1234)), CAND_PUNCH),
                     (SocketAddr::from((Ipv6Addr::LOCALHOST, 5678)), CAND_QUIC),
-                    (SocketAddr::from((Ipv4Addr::new(192, 168, 1, 2), 9000)), CAND_PUNCH),
+                    (
+                        SocketAddr::from((Ipv4Addr::new(192, 168, 1, 2), 9000)),
+                        CAND_PUNCH,
+                    ),
                 ],
             },
             Frame::HelloAck {
@@ -260,7 +283,10 @@ mod tests {
             Frame::PunchRequest { target: id },
             Frame::Exchange {
                 peer: id,
-                cands: vec![(SocketAddr::from((Ipv4Addr::new(192, 168, 1, 2), 9000)), CAND_QUIC)],
+                cands: vec![(
+                    SocketAddr::from((Ipv4Addr::new(192, 168, 1, 2), 9000)),
+                    CAND_QUIC,
+                )],
             },
             Frame::RelayData {
                 to: id,
@@ -268,7 +294,9 @@ mod tests {
                 payload: vec![1, 2, 3, 250],
             },
             Frame::StatsQuery,
-            Frame::StatsReport { text: "stats".into() },
+            Frame::StatsReport {
+                text: "stats".into(),
+            },
             Frame::Error { msg: "boom".into() },
         ];
         for f in frames {

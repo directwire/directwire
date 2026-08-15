@@ -57,13 +57,27 @@ impl RelayClient {
                 }
             }
         });
-        Ok((Self { node_id, writer, rx, reader }, observed))
+        Ok((
+            Self {
+                node_id,
+                writer,
+                rx,
+                reader,
+            },
+            observed,
+        ))
     }
 
     /// Update candidate addresses (re-register after learning the observed address)
     pub async fn update_addrs(&self, cands: crate::proto::Candidates) -> io::Result<()> {
-        write_frame(&mut *self.writer.lock().await, &Frame::Hello { node_id: self.node_id, cands })
-            .await
+        write_frame(
+            &mut *self.writer.lock().await,
+            &Frame::Hello {
+                node_id: self.node_id,
+                cands,
+            },
+        )
+        .await
     }
 
     pub fn node_id(&self) -> NodeId {
@@ -71,14 +85,22 @@ impl RelayClient {
     }
 
     pub async fn punch_request(&self, target: NodeId) -> io::Result<()> {
-        write_frame(&mut *self.writer.lock().await, &Frame::PunchRequest { target }).await
+        write_frame(
+            &mut *self.writer.lock().await,
+            &Frame::PunchRequest { target },
+        )
+        .await
     }
 
     /// Send via the relay (the payload MUST be end-to-end ciphertext)
     pub async fn send_data(&self, to: NodeId, payload: Vec<u8>) -> io::Result<()> {
         write_frame(
             &mut *self.writer.lock().await,
-            &Frame::RelayData { to, from: self.node_id, payload },
+            &Frame::RelayData {
+                to,
+                from: self.node_id,
+                payload,
+            },
         )
         .await
     }

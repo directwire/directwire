@@ -45,7 +45,10 @@ fn mlkem_tampered_ciphertext_yields_different_secret() {
     let (mut ct, ss_enc) = MlKem768Kem::encapsulate(&mut r, &pk).unwrap();
     ct[0] ^= 0x01;
     let ss_dec = MlKem768Kem::decapsulate(&sk, &ct).unwrap();
-    assert_ne!(ss_enc, ss_dec, "shared secret must diverge after tampered ciphertext");
+    assert_ne!(
+        ss_enc, ss_dec,
+        "shared secret must diverge after tampered ciphertext"
+    );
 }
 
 #[test]
@@ -78,7 +81,10 @@ fn hybrid_tampered_ciphertext_fails() {
     let mut ct2 = ct.clone();
     ct2[65] ^= 0x01;
     let ss2 = DefaultHybrid::decapsulate(&sk, &ct2).unwrap();
-    assert_ne!(ss2, ss_enc, "hybrid key must diverge after tampered ML-KEM segment");
+    assert_ne!(
+        ss2, ss_enc,
+        "hybrid key must diverge after tampered ML-KEM segment"
+    );
 }
 
 /// Scenario A: SM2 is (quantum-)broken — the attacker knows ss_c.
@@ -94,14 +100,7 @@ fn single_point_compromise_classical_broken() {
     let ct_c = vec![0u8; 65];
     let pk_c = vec![0u8; 65];
 
-    let out = combine(
-        &attacker_known_ss_c,
-        &ct_c,
-        &pk_c,
-        &ss_p,
-        &ct_p,
-        &pk_p,
-    );
+    let out = combine(&attacker_known_ss_c, &ct_c, &pk_c, &ss_p, &ct_p, &pk_p);
     // Swap in a different PQ shared secret (which the attacker does not know); the output must change
     let other_ss_p = [0xBB; 32];
     let out2 = combine(
@@ -112,7 +111,10 @@ fn single_point_compromise_classical_broken() {
         &ct_p,
         &pk_p,
     );
-    assert_ne!(out, out2, "with SM2 broken, the hybrid key must still track the unknown ss_p");
+    assert_ne!(
+        out, out2,
+        "with SM2 broken, the hybrid key must still track the unknown ss_p"
+    );
 }
 
 /// Scenario B: ML-KEM is broken — the attacker knows ss_p. Symmetric assertion.
@@ -129,8 +131,18 @@ fn single_point_compromise_pq_broken() {
 
     let out = combine(&ss_c, &ct_c, &pk_c, &attacker_known_ss_p, &ct_p, &pk_p);
     let other_ss_c = [0x77; 32];
-    let out2 = combine(&other_ss_c, &ct_c, &pk_c, &attacker_known_ss_p, &ct_p, &pk_p);
-    assert_ne!(out, out2, "with ML-KEM broken, the hybrid key must still track the unknown ss_c");
+    let out2 = combine(
+        &other_ss_c,
+        &ct_c,
+        &pk_c,
+        &attacker_known_ss_p,
+        &ct_p,
+        &pk_p,
+    );
+    assert_ne!(
+        out, out2,
+        "with ML-KEM broken, the hybrid key must still track the unknown ss_c"
+    );
 }
 
 /// Ciphertext/public-key binding: any change to a public parameter changes the combined output

@@ -86,7 +86,10 @@ impl PunchMachine {
                 self.peer_addrs = addrs;
                 self.attempts = 1;
                 self.state = PunchState::Punching;
-                self.peer_addrs.iter().map(|a| PunchAction::SendPunch(*a)).collect()
+                self.peer_addrs
+                    .iter()
+                    .map(|a| PunchAction::SendPunch(*a))
+                    .collect()
             }
             (PunchState::WaitCandidates | PunchState::Punching, PunchEvent::PacketFrom(src)) => {
                 self.state = PunchState::Direct(src);
@@ -98,7 +101,10 @@ impl PunchMachine {
                     return vec![PunchAction::FallbackToRelay];
                 }
                 self.attempts += 1;
-                self.peer_addrs.iter().map(|a| PunchAction::SendPunch(*a)).collect()
+                self.peer_addrs
+                    .iter()
+                    .map(|a| PunchAction::SendPunch(*a))
+                    .collect()
             }
             // Direct/Failed are terminal states; all other combinations are ignored
             _ => vec![],
@@ -257,11 +263,25 @@ mod tests {
         );
         // loopback + NIC + observed, 2 each (punch/quic)
         assert_eq!(cands.len(), 6);
-        assert!(cands.contains(&(SocketAddr::from(([127, 0, 0, 1], 1000)), crate::proto::CAND_PUNCH)));
-        assert!(cands.contains(&(SocketAddr::from(([192, 168, 1, 5], 2000)), crate::proto::CAND_QUIC)));
-        assert!(cands.contains(&(SocketAddr::from(([203, 0, 113, 9], 1000)), crate::proto::CAND_PUNCH)));
+        assert!(cands.contains(&(
+            SocketAddr::from(([127, 0, 0, 1], 1000)),
+            crate::proto::CAND_PUNCH
+        )));
+        assert!(cands.contains(&(
+            SocketAddr::from(([192, 168, 1, 5], 2000)),
+            crate::proto::CAND_QUIC
+        )));
+        assert!(cands.contains(&(
+            SocketAddr::from(([203, 0, 113, 9], 1000)),
+            crate::proto::CAND_PUNCH
+        )));
         // Dedup: no duplicate when observed and NIC share the same IP
-        let c2 = build_candidates(1, 2, &[std::net::Ipv4Addr::new(10, 0, 0, 1)], Some(SocketAddr::from(([10, 0, 0, 1], 9))));
+        let c2 = build_candidates(
+            1,
+            2,
+            &[std::net::Ipv4Addr::new(10, 0, 0, 1)],
+            Some(SocketAddr::from(([10, 0, 0, 1], 9))),
+        );
         assert_eq!(c2.len(), 4);
     }
 }

@@ -46,7 +46,10 @@ fn ticket_cache_rejects_replay() {
     let id = [42u8; 16];
     let exp = u64::MAX; // never expires
     cache.check_and_insert(id, exp).unwrap();
-    assert!(cache.check_and_insert(id, exp).is_err(), "replayed ticket must be intercepted");
+    assert!(
+        cache.check_and_insert(id, exp).is_err(),
+        "replayed ticket must be intercepted"
+    );
     // A different ID is unaffected
     cache.check_and_insert([43u8; 16], exp).unwrap();
 }
@@ -80,9 +83,7 @@ fn psk_resumption_handshake_with_early_data() {
 
     let m2 = resp.write_msg2(&mut r).unwrap();
     init.read_msg2(&m2).unwrap();
-    let (m3, mut s_i) = init
-        .write_msg3_with_auth(&mut r, &AllowAllAnchor)
-        .unwrap();
+    let (m3, mut s_i) = init.write_msg3_with_auth(&mut r, &AllowAllAnchor).unwrap();
     let (mut s_r, authed_pk) = resp.read_msg3_with_auth(&m3, &AllowAllAnchor).unwrap();
 
     assert_eq!(authed_pk, i_pk);
@@ -93,9 +94,11 @@ fn psk_resumption_handshake_with_early_data() {
     assert_eq!(s_r.recv(&pkt).unwrap(), b"resumed hello");
 
     // Using the same ticket again => intercepted by the cache (0-RTT replay protection)
-    assert!(cache
-        .check_and_insert(payload.ticket_id, payload.expires_at)
-        .is_err());
+    assert!(
+        cache
+            .check_and_insert(payload.ticket_id, payload.expires_at)
+            .is_err()
+    );
 }
 
 /// PSK mismatch => the two sides' keys diverge => AEAD failure (wrong-ticket / forgery scenario)
@@ -116,9 +119,7 @@ fn psk_mismatch_fails() {
     let m2 = resp.write_msg2(&mut r).unwrap();
     init.read_msg2(&m2).unwrap();
     // Different PSKs => different ck => AEAD(s_r) decryption authentication fails
-    assert!(init
-        .write_msg3_with_auth(&mut r, &AllowAllAnchor)
-        .is_err());
+    assert!(init.write_msg3_with_auth(&mut r, &AllowAllAnchor).is_err());
 }
 
 /// Calling the early-data interface outside PSK mode => the state machine rejects it

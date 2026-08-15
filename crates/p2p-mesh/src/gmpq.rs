@@ -28,8 +28,8 @@
 //! - TicketCache: no tickets are issued, so the cross-connection sharing question is moot.
 
 use gm_pq_stack::crypto::sm3;
-use gm_pq_stack::handshake::{Initiator, Responder};
 pub use gm_pq_stack::handshake::Session;
+use gm_pq_stack::handshake::{Initiator, Responder};
 use gm_pq_stack::kem::{DefaultHybrid, Kem};
 use gm_pq_stack::rng::SysRng;
 
@@ -171,7 +171,11 @@ mod tests {
         let peer_b_pk = init.peer_static().unwrap().to_vec();
         // server: msg3 -> session
         let (mut sess_b, peer_a_pk) = resp.read_msg3_with_auth(&m3, &anchor).unwrap();
-        assert_eq!(sess_a.session_id(), sess_b.session_id(), "both sides' session_ids must match");
+        assert_eq!(
+            sess_a.session_id(),
+            sess_b.session_id(),
+            "both sides' session_ids must match"
+        );
 
         // BIND both ways
         let bind_a = build_bind(&a, &gm_a.pk, sess_a.session_id());

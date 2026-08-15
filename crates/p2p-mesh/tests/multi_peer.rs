@@ -22,11 +22,7 @@ async fn spawn_relay() -> SocketAddr {
     addr
 }
 
-async fn wait_event(
-    n: &mut Node,
-    pred: impl Fn(&NodeEvent) -> bool,
-    what: &str,
-) -> NodeEvent {
+async fn wait_event(n: &mut Node, pred: impl Fn(&NodeEvent) -> bool, what: &str) -> NodeEvent {
     tokio::time::timeout(T, async {
         loop {
             match n.next_event().await {
@@ -68,15 +64,20 @@ async fn concurrent_multi_peer_direct() {
     tokio::time::timeout(T, async {
         while switched.len() < 2 {
             match a.next_event().await {
-                Some(NodeEvent::PunchResult { peer, direct: Some(_) }) => {
+                Some(NodeEvent::PunchResult {
+                    peer,
+                    direct: Some(_),
+                }) => {
                     punched.insert(peer);
                 }
                 Some(NodeEvent::DirectReady { peer }) => {
                     direct_ready.insert(peer);
                 }
-                Some(NodeEvent::PathSwitch { peer, to: PathKind::Direct, .. })
-                    if punched.contains(&peer) && direct_ready.contains(&peer) =>
-                {
+                Some(NodeEvent::PathSwitch {
+                    peer,
+                    to: PathKind::Direct,
+                    ..
+                }) if punched.contains(&peer) && direct_ready.contains(&peer) => {
                     switched.insert(peer);
                 }
                 Some(_) => {}
@@ -93,11 +94,39 @@ async fn concurrent_multi_peer_direct() {
     a.send_to(idb, b"for-b".to_vec()).await;
     a.send_to(idc, b"for-c".to_vec()).await;
 
-    match wait_event(&mut b, |e| matches!(e, NodeEvent::Message { via: PathKind::Direct, .. }), "b receives direct message").await {
+    match wait_event(
+        &mut b,
+        |e| {
+            matches!(
+                e,
+                NodeEvent::Message {
+                    via: PathKind::Direct,
+                    ..
+                }
+            )
+        },
+        "b receives direct message",
+    )
+    .await
+    {
         NodeEvent::Message { payload, .. } => assert_eq!(payload, b"for-b"),
         _ => unreachable!(),
     }
-    match wait_event(&mut c, |e| matches!(e, NodeEvent::Message { via: PathKind::Direct, .. }), "c receives direct message").await {
+    match wait_event(
+        &mut c,
+        |e| {
+            matches!(
+                e,
+                NodeEvent::Message {
+                    via: PathKind::Direct,
+                    ..
+                }
+            )
+        },
+        "c receives direct message",
+    )
+    .await
+    {
         NodeEvent::Message { payload, .. } => assert_eq!(payload, b"for-c"),
         _ => unreachable!(),
     }
@@ -107,7 +136,13 @@ async fn concurrent_multi_peer_direct() {
     c.send_to(ida, b"from-c".to_vec()).await;
     let mut got = 0;
     while got < 2 {
-        match wait_event(&mut a, |e| matches!(e, NodeEvent::Message { .. }), "a receives return messages").await {
+        match wait_event(
+            &mut a,
+            |e| matches!(e, NodeEvent::Message { .. }),
+            "a receives return messages",
+        )
+        .await
+        {
             NodeEvent::Message { payload, .. } => {
                 assert!(payload == b"from-b" || payload == b"from-c");
                 got += 1;

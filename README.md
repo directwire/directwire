@@ -39,6 +39,13 @@ cargo run -p p2p-mesh --example node_b -- --relay 127.0.0.1:9100 --seed 2
 cargo run -p p2p-mesh --example node_a -- --relay 127.0.0.1:9100 --peer <node-b-hex>
 ```
 
+## End-to-end demo
+
+One command starts a relay + two nodes on your machine, watches them establish a relay session,
+punch a direct path, and switch: `scripts/demo.sh` (or `scripts/demo.sh --gm-pq` to also enable the
+SM2 + ML-KEM-768 channel). The script prints both nodes' event streams; the line to look for is
+`*** path switch Relay -> Direct ***` — after it, messages flow over the direct QUIC path instead of the relay.
+
 ## Architecture
 
 ```mermaid

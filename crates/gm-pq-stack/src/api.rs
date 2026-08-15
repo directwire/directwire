@@ -73,7 +73,9 @@ fn read_frame<S: Read>(s: &mut S) -> Result<(u8, Vec<u8>)> {
 fn expect_frame<S: Read>(s: &mut S, want: u8) -> Result<Vec<u8>> {
     let (got, payload) = read_frame(s)?;
     if got != want {
-        return Err(Error::HandshakeState("unexpected frame type (protocol disorder or injection)"));
+        return Err(Error::HandshakeState(
+            "unexpected frame type (protocol disorder or injection)",
+        ));
     }
     Ok(payload)
 }
@@ -92,7 +94,8 @@ impl<S: Read + Write> SecureChannel<S> {
     /// Send an encrypted message (frame = len || seq || ct || tag)
     pub fn send_msg(&mut self, data: &[u8]) -> Result<()> {
         let packet = self.session.send(data);
-        self.stream.write_all(&(packet.len() as u32).to_be_bytes())?;
+        self.stream
+            .write_all(&(packet.len() as u32).to_be_bytes())?;
         self.stream.write_all(&packet)?;
         self.stream.flush()?;
         Ok(())

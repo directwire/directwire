@@ -78,29 +78,63 @@ impl NodeConfig {
 /// Node events (for examples / tests to observe)
 #[derive(Debug)]
 pub enum NodeEvent {
-    Registered { relay: SocketAddr, observed: SocketAddr },
-    PunchStarted { peer: NodeId },
+    Registered {
+        relay: SocketAddr,
+        observed: SocketAddr,
+    },
+    PunchStarted {
+        peer: NodeId,
+    },
     /// Punch result: Some(addr) = a direct address opened; None = timed out, fell back to the relay
-    PunchResult { peer: NodeId, direct: Option<SocketAddr> },
+    PunchResult {
+        peer: NodeId,
+        direct: Option<SocketAddr>,
+    },
     /// QUIC direct connection ready
-    DirectReady { peer: NodeId },
+    DirectReady {
+        peer: NodeId,
+    },
     /// Path switch (seamless: messages remain reachable across the switch)
-    PathSwitch { peer: NodeId, from: PathKind, to: PathKind },
+    PathSwitch {
+        peer: NodeId,
+        from: PathKind,
+        to: PathKind,
+    },
     /// Probe sample (with loss rate)
-    RttSample { peer: NodeId, path: PathKind, rtt_ms: f64, loss_pct: f64 },
+    RttSample {
+        peer: NodeId,
+        path: PathKind,
+        rtt_ms: f64,
+        loss_pct: f64,
+    },
     /// Relay-path encrypted session ready (suite: "x25519+ed25519" or "sm2+ml-kem-768+sm4-gcm")
-    SessionReady { peer: NodeId, suite: &'static str },
-    Message { from: NodeId, via: PathKind, payload: Vec<u8> },
+    SessionReady {
+        peer: NodeId,
+        suite: &'static str,
+    },
+    Message {
+        from: NodeId,
+        via: PathKind,
+        payload: Vec<u8>,
+    },
     Log(String),
 }
 
 enum NodeCmd {
-    ConnectPeer { peer: NodeId },
-    SendTo { peer: NodeId, payload: Vec<u8> },
+    ConnectPeer {
+        peer: NodeId,
+    },
+    SendTo {
+        peer: NodeId,
+        payload: Vec<u8>,
+    },
     ProbeTick,
     /// GM-PQ handshake timeout check (generation guards against stale timers)
     #[cfg(feature = "gm-pq")]
-    GmCheck { peer: NodeId, gen: u64 },
+    GmCheck {
+        peer: NodeId,
+        gen: u64,
+    },
     Shutdown,
 }
 
@@ -141,10 +175,12 @@ impl Node {
 
         let (relay, observed) = RelayClient::connect(cfg.relay_addr, id, cands).await?;
         // STUN-like: add the observed public IP to the candidates and re-register
-        if observed.ip().is_ipv4() && !ips.contains(&match observed.ip() {
-            std::net::IpAddr::V4(v4) => v4,
-            std::net::IpAddr::V6(_) => unreachable!(),
-        }) {
+        if observed.ip().is_ipv4()
+            && !ips.contains(&match observed.ip() {
+                std::net::IpAddr::V4(v4) => v4,
+                std::net::IpAddr::V6(_) => unreachable!(),
+            })
+        {
             let cands = holepunch::build_candidates(punch_port, quic_port, &ips, Some(observed));
             relay.update_addrs(cands).await.ok();
         }
@@ -154,7 +190,10 @@ impl Node {
         let (qtx, qrx) = mpsc::channel::<QuicEv>(64);
 
         ev_tx
-            .send(NodeEvent::Registered { relay: cfg.relay_addr, observed })
+            .send(NodeEvent::Registered {
+                relay: cfg.relay_addr,
+                observed,
+            })
             .await
             .ok();
 
@@ -192,14 +231,19 @@ impl Node {
         // GM-PQ identity and cookie issuer (feature gm-pq and configured enabled)
         #[cfg(feature = "gm-pq")]
         let (gm_id, gm_cookie) = if cfg.gmpq {
-            (gmpq::GmIdentity::generate(), Some(gmpq::new_cookie_issuer()))
+            (
+                gmpq::GmIdentity::generate(),
+                Some(gmpq::new_cookie_issuer()),
+            )
         } else {
             (None, None)
         };
         #[cfg(feature = "gm-pq")]
         if cfg.gmpq && gm_id.is_none() {
             ev_tx
-                .send(NodeEvent::Log("GM-PQ identity generation failed, falling back to X25519".into()))
+                .send(NodeEvent::Log(
+                    "GM-PQ identity generation failed, falling back to X25519".into(),
+                ))
                 .await
                 .ok();
         }
@@ -226,7 +270,12 @@ impl Node {
             quic_tx: qtx,
         };
         let actor_handle = tokio::spawn(async move { actor.run().await });
-        Ok(Self { id, cmd: cmd_tx, events: ev_rx, actor: actor_handle })
+        Ok(Self {
+            id,
+            cmd: cmd_tx,
+            events: ev_rx,
+            actor: actor_handle,
+        })
     }
 
     pub fn node_id(&self) -> NodeId {
@@ -268,7 +317,10 @@ enum GmState {
     /// server: MSG2 sent, waiting for MSG3
     ServerWaitMsg3 { resp: gmpq::GmResponder },
     /// client: MSG1 sent, waiting for the cookie challenge
-    ClientWaitCookie { init: gmpq::GmInitiator, e_pk: Vec<u8> },
+    ClientWaitCookie {
+        init: gmpq::GmInitiator,
+        e_pk: Vec<u8>,
+    },
     /// client: cookie echoed, waiting for MSG2
     ClientWaitMsg2 { init: gmpq::GmInitiator },
     /// Handshake complete (Session ready); BIND sent but not yet verified (waiting for the peer's BIND)
@@ -277,7 +329,9 @@ enum GmState {
         peer_gm_pk: Vec<u8>,
     },
     /// BIND verified both ways; the channel is usable
-    Ready { session: gm_pq_stack::handshake::Session },
+    Ready {
+        session: gm_pq_stack::handshake::Session,
+    },
 }
 
 #[cfg(feature = "gm-pq")]
@@ -484,13 +538,15 @@ impl Actor {
 
     async fn on_connect_peer(&mut self, peer: NodeId) {
         if peer == self.identity.node_id() {
-            self.emit(NodeEvent::Log("cannot connect to self".into())).await;
+            self.emit(NodeEvent::Log("cannot connect to self".into()))
+                .await;
             return;
         }
         self.ensure_peer(peer);
         if self.cfg.enable_punch && !self.punching.contains_key(&peer) {
             if let Err(e) = self.relay.punch_request(peer).await {
-                self.emit(NodeEvent::Log(format!("PunchRequest failed: {e}"))).await;
+                self.emit(NodeEvent::Log(format!("PunchRequest failed: {e}")))
+                    .await;
                 return;
             }
             self.emit(NodeEvent::PunchStarted { peer }).await;
@@ -517,7 +573,10 @@ impl Actor {
                     .map(|(a, _)| *a)
                     .collect();
                 if punch_addrs.is_empty() {
-                    self.emit(NodeEvent::Log(format!("peer has no hole-punch candidate addresses (peer={peer})"))).await;
+                    self.emit(NodeEvent::Log(format!(
+                        "peer has no hole-punch candidate addresses (peer={peer})"
+                    )))
+                    .await;
                     return;
                 }
                 let mut machine = PunchMachine::new(self.cfg.punch_max_attempts);
@@ -529,7 +588,8 @@ impl Actor {
             }
             Frame::RelayData { from, payload, .. } => self.on_relay_data(from, payload).await,
             Frame::Error { msg } => {
-                self.emit(NodeEvent::Log(format!("relay error: {msg}"))).await;
+                self.emit(NodeEvent::Log(format!("relay error: {msg}")))
+                    .await;
             }
             _ => {}
         }
@@ -544,12 +604,17 @@ impl Actor {
         #[cfg(feature = "gm-pq")]
         {
             let gm_ready = matches!(
-                self.peers.get(&pid).and_then(|p| p.gm.as_ref().map(|g| &g.state)),
+                self.peers
+                    .get(&pid)
+                    .and_then(|p| p.gm.as_ref().map(|g| &g.state)),
                 Some(GmState::Ready { .. })
             );
             if gm_ready {
                 let p = self.peers.get_mut(&pid).unwrap();
-                if let Some(GmPeer { state: GmState::Ready { session } }) = p.gm.as_mut() {
+                if let Some(GmPeer {
+                    state: GmState::Ready { session },
+                }) = p.gm.as_mut()
+                {
                     let pkt = session.send(&inner);
                     let mut payload = Vec::with_capacity(pkt.len() + 2);
                     payload.extend_from_slice(&[gmpq::GM_TAG, gmpq::GM_DATA]);
@@ -631,13 +696,27 @@ impl Actor {
                     let loss = p.relay_loss_pct() / 100.0;
                     let sw = p.paths.on_sample(
                         PathKind::Relay,
-                        PathSample { rtt: Some(rtt), loss: Some(loss) },
+                        PathSample {
+                            rtt: Some(rtt),
+                            loss: Some(loss),
+                        },
                         Instant::now(),
                     );
                     let loss_pct = loss * 100.0;
-                    self.emit(NodeEvent::RttSample { peer: from, path: PathKind::Relay, rtt_ms, loss_pct }).await;
+                    self.emit(NodeEvent::RttSample {
+                        peer: from,
+                        path: PathKind::Relay,
+                        rtt_ms,
+                        loss_pct,
+                    })
+                    .await;
                     if let Some(sw) = sw {
-                        self.emit(NodeEvent::PathSwitch { peer: from, from: sw.from, to: sw.to }).await;
+                        self.emit(NodeEvent::PathSwitch {
+                            peer: from,
+                            from: sw.from,
+                            to: sw.to,
+                        })
+                        .await;
                     }
                 }
             }
@@ -674,11 +753,16 @@ impl Actor {
                             p.session = Some(cipher);
                             p.hs = None;
                             let _ = self.relay.send_data(from, resp).await;
-                            self.emit(NodeEvent::SessionReady { peer: from, suite: "x25519+ed25519" }).await;
+                            self.emit(NodeEvent::SessionReady {
+                                peer: from,
+                                suite: "x25519+ed25519",
+                            })
+                            .await;
                             self.flush_pending(from).await;
                         }
                         Err(e) => {
-                            self.emit(NodeEvent::Log(format!("handshake init rejected: {e}"))).await;
+                            self.emit(NodeEvent::Log(format!("handshake init rejected: {e}")))
+                                .await;
                         }
                     }
                 }
@@ -692,16 +776,22 @@ impl Actor {
                         Ok(cipher) => {
                             let p = self.peers.get_mut(&from).unwrap();
                             p.session = Some(cipher);
-                            self.emit(NodeEvent::SessionReady { peer: from, suite: "x25519+ed25519" }).await;
+                            self.emit(NodeEvent::SessionReady {
+                                peer: from,
+                                suite: "x25519+ed25519",
+                            })
+                            .await;
                             self.flush_pending(from).await;
                         }
                         Err(e) => {
-                            self.emit(NodeEvent::Log(format!("handshake resp rejected: {e}"))).await;
+                            self.emit(NodeEvent::Log(format!("handshake resp rejected: {e}")))
+                                .await;
                         }
                     }
                 }
                 _ => {
-                    self.emit(NodeEvent::Log("unknown handshake message".into())).await;
+                    self.emit(NodeEvent::Log("unknown handshake message".into()))
+                        .await;
                 }
             }
             return;
@@ -709,13 +799,19 @@ impl Actor {
         // AEAD ciphertext (X25519 session)
         let p = self.peers.get_mut(&from).unwrap();
         let Some(sess) = p.session.as_mut() else {
-            self.emit(NodeEvent::Log("ciphertext arrived before the handshake completed; dropping".into())).await;
+            self.emit(NodeEvent::Log(
+                "ciphertext arrived before the handshake completed; dropping".into(),
+            ))
+            .await;
             return;
         };
         let inner = match sess.open(&payload) {
             Ok(p) => p,
             Err(e) => {
-                self.emit(NodeEvent::Log(format!("relay ciphertext decrypt failed: {e}"))).await;
+                self.emit(NodeEvent::Log(format!(
+                    "relay ciphertext decrypt failed: {e}"
+                )))
+                .await;
                 return;
             }
         };
@@ -730,7 +826,11 @@ impl Actor {
                 if let Some(p) = self.peers.get_mut(&peer) {
                     p.paths.on_direct_up();
                 }
-                self.emit(NodeEvent::PunchResult { peer, direct: Some(src) }).await;
+                self.emit(NodeEvent::PunchResult {
+                    peer,
+                    direct: Some(src),
+                })
+                .await;
                 // Pick the QUIC connect target: prefer the QUIC candidate sharing the punched IP
                 let target = {
                     let p = self.peers.get(&peer).unwrap();
@@ -741,7 +841,10 @@ impl Actor {
                         .or_else(|| p.quic_cands.first().copied())
                 };
                 let Some(target) = target else {
-                    self.emit(NodeEvent::Log(format!("peer has no QUIC candidate addresses (peer={peer})"))).await;
+                    self.emit(NodeEvent::Log(format!(
+                        "peer has no QUIC candidate addresses (peer={peer})"
+                    )))
+                    .await;
                     return;
                 };
                 // simultaneous-open: both sides connect to each other's QUIC candidate address
@@ -749,7 +852,16 @@ impl Actor {
                 let id = self.identity.clone();
                 let qtx = self.quic_tx.clone();
                 tokio::spawn(async move {
-                    match quic::simultaneous_open(&ep, &id, peer, target, 8, Duration::from_millis(200)).await {
+                    match quic::simultaneous_open(
+                        &ep,
+                        &id,
+                        peer,
+                        target,
+                        8,
+                        Duration::from_millis(200),
+                    )
+                    .await
+                    {
                         Ok(conn) => {
                             let _ = qtx.send(QuicEv::Conn(conn, true)).await;
                         }
@@ -758,8 +870,12 @@ impl Actor {
                 });
             }
             None => {
-                self.emit(NodeEvent::PunchResult { peer, direct: None }).await;
-                self.emit(NodeEvent::Log(format!("hole punching timed out, falling back to relay (peer={peer})"))).await;
+                self.emit(NodeEvent::PunchResult { peer, direct: None })
+                    .await;
+                self.emit(NodeEvent::Log(format!(
+                    "hole punching timed out, falling back to relay (peer={peer})"
+                )))
+                .await;
             }
         }
     }
@@ -827,7 +943,12 @@ impl Actor {
             if current == Some(sid) {
                 p.direct = None;
                 if let Some(sw) = p.paths.on_direct_down(Instant::now()) {
-                    self.emit(NodeEvent::PathSwitch { peer, from: sw.from, to: sw.to }).await;
+                    self.emit(NodeEvent::PathSwitch {
+                        peer,
+                        from: sw.from,
+                        to: sw.to,
+                    })
+                    .await;
                 }
             }
         }
@@ -846,11 +967,19 @@ impl Actor {
                     Ok(()) => return,
                     Err(e) => {
                         // Direct failed: immediately fall back to the relay (seamless switch semantics)
-                        self.emit(NodeEvent::Log(format!("direct send failed, falling back to relay: {e}"))).await;
+                        self.emit(NodeEvent::Log(format!(
+                            "direct send failed, falling back to relay: {e}"
+                        )))
+                        .await;
                         let p = self.peers.get_mut(&peer).unwrap();
                         p.direct = None;
                         if let Some(sw) = p.paths.on_direct_down(Instant::now()) {
-                            self.emit(NodeEvent::PathSwitch { peer, from: sw.from, to: sw.to }).await;
+                            self.emit(NodeEvent::PathSwitch {
+                                peer,
+                                from: sw.from,
+                                to: sw.to,
+                            })
+                            .await;
                         }
                     }
                 }
@@ -879,7 +1008,11 @@ impl Actor {
                     Some((s0, l0)) => {
                         let ds = sent.saturating_sub(s0);
                         let dl = lost.saturating_sub(l0);
-                        if ds > 0 { dl as f64 / ds as f64 } else { 0.0 }
+                        if ds > 0 {
+                            dl as f64 / ds as f64
+                        } else {
+                            0.0
+                        }
                     }
                     None => 0.0,
                 };
@@ -887,7 +1020,10 @@ impl Actor {
                 let rtt = stats.path.rtt;
                 let sw = p.paths.on_sample(
                     PathKind::Direct,
-                    PathSample { rtt: Some(rtt), loss: Some(interval_loss) },
+                    PathSample {
+                        rtt: Some(rtt),
+                        loss: Some(interval_loss),
+                    },
                     Instant::now(),
                 );
                 pending_events.push(NodeEvent::RttSample {
@@ -897,7 +1033,11 @@ impl Actor {
                     loss_pct: interval_loss * 100.0,
                 });
                 if let Some(sw) = sw {
-                    pending_events.push(NodeEvent::PathSwitch { peer: pid, from: sw.from, to: sw.to });
+                    pending_events.push(NodeEvent::PathSwitch {
+                        peer: pid,
+                        from: sw.from,
+                        to: sw.to,
+                    });
                 }
             }
             // Relay path: expired pings count as loss; send a new ping (skip probing if the session is not ready)
@@ -924,10 +1064,7 @@ impl Actor {
             let has_session = p.session.is_some();
             #[cfg(feature = "gm-pq")]
             let has_session = has_session
-                || matches!(
-                    p.gm.as_ref().map(|g| &g.state),
-                    Some(GmState::Ready { .. })
-                );
+                || matches!(p.gm.as_ref().map(|g| &g.state), Some(GmState::Ready { .. }));
             if has_session {
                 self.ping_seq += 1;
                 let id = self.ping_seq;
@@ -963,7 +1100,9 @@ impl Actor {
     /// Start the GM-PQ handshake (idempotent: no duplicate start when state already exists)
     async fn gm_start(&mut self, peer: NodeId) {
         let me = self.identity.node_id();
-        let Some(gm) = self.gm_id.as_ref() else { return };
+        let Some(gm) = self.gm_id.as_ref() else {
+            return;
+        };
         {
             let p = self.peers.get(&peer).unwrap();
             if p.gm.is_some() || p.gm_failed {
@@ -977,7 +1116,12 @@ impl Actor {
             match init.write_msg1(&mut rng) {
                 Ok(e_pk) => {
                     let p = self.peers.get_mut(&peer).unwrap();
-                    p.gm = Some(GmPeer { state: GmState::ClientWaitCookie { init, e_pk: e_pk.clone() } });
+                    p.gm = Some(GmPeer {
+                        state: GmState::ClientWaitCookie {
+                            init,
+                            e_pk: e_pk.clone(),
+                        },
+                    });
                     self.gm_send(peer, gmpq::GM_MSG1, &e_pk).await;
                 }
                 Err(_) => {
@@ -987,7 +1131,9 @@ impl Actor {
         } else {
             // We are the server: send a KICK to wake the peer, wait for MSG1
             let p = self.peers.get_mut(&peer).unwrap();
-            p.gm = Some(GmPeer { state: GmState::ServerWaitMsg1 });
+            p.gm = Some(GmPeer {
+                state: GmState::ServerWaitMsg1,
+            });
             self.gm_send(peer, gmpq::GM_KICK, &[]).await;
         }
         // Handshake timeout -> fall back to X25519
@@ -1005,7 +1151,9 @@ impl Actor {
 
     /// GM-PQ timeout check: if not ready, discard and fall back to X25519 (pending preserved)
     async fn on_gm_check(&mut self, peer: NodeId, gen: u64) {
-        let Some(p) = self.peers.get_mut(&peer) else { return };
+        let Some(p) = self.peers.get_mut(&peer) else {
+            return;
+        };
         if p.gm_gen != gen {
             return; // stale timer
         }
@@ -1015,7 +1163,10 @@ impl Actor {
         }
         p.gm = None;
         p.gm_failed = true;
-        self.emit(NodeEvent::Log(format!("GM-PQ handshake timed out, falling back to X25519+ed25519 (peer={peer})"))).await;
+        self.emit(NodeEvent::Log(format!(
+            "GM-PQ handshake timed out, falling back to X25519+ed25519 (peer={peer})"
+        )))
+        .await;
         // Start a supplementary X25519 handshake if pending is backlogged
         let need_hs = {
             let p = self.peers.get(&peer).unwrap();
@@ -1045,8 +1196,9 @@ impl Actor {
                         self.gm_start(from).await;
                     } else {
                         // We are the server: enter wait-for-MSG1
-                        self.peers.get_mut(&from).unwrap().gm =
-                            Some(GmPeer { state: GmState::ServerWaitMsg1 });
+                        self.peers.get_mut(&from).unwrap().gm = Some(GmPeer {
+                            state: GmState::ServerWaitMsg1,
+                        });
                     }
                 }
             }
@@ -1055,28 +1207,45 @@ impl Actor {
                     return; // role violation: the smaller NodeId must not receive MSG1
                 }
                 let p = self.peers.get_mut(&from).unwrap();
-                if p.gm.is_some() && !matches!(p.gm.as_ref().unwrap().state, GmState::ServerWaitMsg1) {
+                if p.gm.is_some()
+                    && !matches!(p.gm.as_ref().unwrap().state, GmState::ServerWaitMsg1)
+                {
                     return; // already in progress
                 }
-                let cookie = self.gm_cookie.as_ref().unwrap().issue(from.as_bytes(), body);
-                p.gm = Some(GmPeer { state: GmState::ServerWaitRetry { e_pk: body.to_vec() } });
+                let cookie = self
+                    .gm_cookie
+                    .as_ref()
+                    .unwrap()
+                    .issue(from.as_bytes(), body);
+                p.gm = Some(GmPeer {
+                    state: GmState::ServerWaitRetry {
+                        e_pk: body.to_vec(),
+                    },
+                });
                 self.gm_send(from, gmpq::GM_COOKIE, &cookie).await;
             }
             gmpq::GM_COOKIE => {
-                let Some(GmPeer { state: GmState::ClientWaitCookie { init, e_pk } }) =
-                    self.peers.get_mut(&from).unwrap().gm.take()
-                else { return };
+                let Some(GmPeer {
+                    state: GmState::ClientWaitCookie { init, e_pk },
+                }) = self.peers.get_mut(&from).unwrap().gm.take()
+                else {
+                    return;
+                };
                 let mut retry = body.to_vec();
                 retry.extend_from_slice(&e_pk);
-                self.peers.get_mut(&from).unwrap().gm =
-                    Some(GmPeer { state: GmState::ClientWaitMsg2 { init } });
+                self.peers.get_mut(&from).unwrap().gm = Some(GmPeer {
+                    state: GmState::ClientWaitMsg2 { init },
+                });
                 self.gm_send(from, gmpq::GM_MSG1_RETRY, &retry).await;
             }
             gmpq::GM_MSG1_RETRY => {
                 use gm_pq_stack::handshake::cookie::COOKIE_LEN;
-                let Some(GmPeer { state: GmState::ServerWaitRetry { e_pk } }) =
-                    self.peers.get_mut(&from).unwrap().gm.take()
-                else { return };
+                let Some(GmPeer {
+                    state: GmState::ServerWaitRetry { e_pk },
+                }) = self.peers.get_mut(&from).unwrap().gm.take()
+                else {
+                    return;
+                };
                 let verified = (|| {
                     if body.len() < COOKIE_LEN {
                         return None;
@@ -1093,7 +1262,8 @@ impl Actor {
                     Some(e_pk)
                 })();
                 let Some(e_pk) = verified else {
-                    self.emit(NodeEvent::Log("GM-PQ cookie verification failed".into())).await;
+                    self.emit(NodeEvent::Log("GM-PQ cookie verification failed".into()))
+                        .await;
                     return;
                 };
                 let gm = self.gm_id.as_ref().unwrap();
@@ -1104,19 +1274,24 @@ impl Actor {
                     .and_then(|_| resp.write_msg2(&mut rng));
                 match m2 {
                     Ok(m2) => {
-                        self.peers.get_mut(&from).unwrap().gm =
-                            Some(GmPeer { state: GmState::ServerWaitMsg3 { resp } });
+                        self.peers.get_mut(&from).unwrap().gm = Some(GmPeer {
+                            state: GmState::ServerWaitMsg3 { resp },
+                        });
                         self.gm_send(from, gmpq::GM_MSG2, &m2).await;
                     }
                     Err(e) => {
-                        self.emit(NodeEvent::Log(format!("GM-PQ msg1 handling failed: {e}"))).await;
+                        self.emit(NodeEvent::Log(format!("GM-PQ msg1 handling failed: {e}")))
+                            .await;
                     }
                 }
             }
             gmpq::GM_MSG2 => {
-                let Some(GmPeer { state: GmState::ClientWaitMsg2 { mut init } }) =
-                    self.peers.get_mut(&from).unwrap().gm.take()
-                else { return };
+                let Some(GmPeer {
+                    state: GmState::ClientWaitMsg2 { mut init },
+                }) = self.peers.get_mut(&from).unwrap().gm.take()
+                else {
+                    return;
+                };
                 let mut rng = gmpq::new_rng();
                 let res = init
                     .read_msg2(body)
@@ -1125,11 +1300,18 @@ impl Actor {
                     Ok((m3, session)) => {
                         let peer_gm_pk = init.peer_static().unwrap_or_default().to_vec();
                         // Session ready: immediately send BIND to complete identity binding
-                        let bind = gmpq::build_bind(&self.identity, &self.gm_id.as_ref().unwrap().pk, session.session_id());
+                        let bind = gmpq::build_bind(
+                            &self.identity,
+                            &self.gm_id.as_ref().unwrap().pk,
+                            session.session_id(),
+                        );
                         let mut sess = session;
                         let pkt = sess.send(&bind);
                         self.peers.get_mut(&from).unwrap().gm = Some(GmPeer {
-                            state: GmState::ReadyUnbound { session: sess, peer_gm_pk },
+                            state: GmState::ReadyUnbound {
+                                session: sess,
+                                peer_gm_pk,
+                            },
                         });
                         self.gm_send(from, gmpq::GM_MSG3, &m3).await;
                         // BIND as the first session ciphertext
@@ -1139,20 +1321,31 @@ impl Actor {
                         let _ = self.relay.send_data(from, payload).await;
                     }
                     Err(e) => {
-                        self.emit(NodeEvent::Log(format!("GM-PQ msg2 handling failed: {e}"))).await;
+                        self.emit(NodeEvent::Log(format!("GM-PQ msg2 handling failed: {e}")))
+                            .await;
                     }
                 }
             }
             gmpq::GM_MSG3 => {
-                let Some(GmPeer { state: GmState::ServerWaitMsg3 { mut resp } }) =
-                    self.peers.get_mut(&from).unwrap().gm.take()
-                else { return };
+                let Some(GmPeer {
+                    state: GmState::ServerWaitMsg3 { mut resp },
+                }) = self.peers.get_mut(&from).unwrap().gm.take()
+                else {
+                    return;
+                };
                 match resp.read_msg3_with_auth(body, &gmpq::AllowAllAnchor) {
                     Ok((mut session, client_pk)) => {
-                        let bind = gmpq::build_bind(&self.identity, &self.gm_id.as_ref().unwrap().pk, session.session_id());
+                        let bind = gmpq::build_bind(
+                            &self.identity,
+                            &self.gm_id.as_ref().unwrap().pk,
+                            session.session_id(),
+                        );
                         let pkt = session.send(&bind);
                         self.peers.get_mut(&from).unwrap().gm = Some(GmPeer {
-                            state: GmState::ReadyUnbound { session, peer_gm_pk: client_pk },
+                            state: GmState::ReadyUnbound {
+                                session,
+                                peer_gm_pk: client_pk,
+                            },
                         });
                         let mut payload = Vec::with_capacity(pkt.len() + 2);
                         payload.extend_from_slice(&[gmpq::GM_TAG, gmpq::GM_DATA]);
@@ -1160,7 +1353,8 @@ impl Actor {
                         let _ = self.relay.send_data(from, payload).await;
                     }
                     Err(e) => {
-                        self.emit(NodeEvent::Log(format!("GM-PQ msg3 rejected: {e}"))).await;
+                        self.emit(NodeEvent::Log(format!("GM-PQ msg3 rejected: {e}")))
+                            .await;
                     }
                 }
             }
@@ -1175,24 +1369,29 @@ impl Actor {
                 let out = {
                     let p = self.peers.get_mut(&from).unwrap();
                     match p.gm.as_mut() {
-                        Some(GmPeer { state: GmState::ReadyUnbound { session, peer_gm_pk } }) => {
-                            match session.recv(body) {
-                                Ok(pt) if pt.starts_with(gmpq::BIND_PREFIX) => {
-                                    match gmpq::parse_bind(&pt, &from, peer_gm_pk, session.session_id()) {
-                                        Ok(_) => Out::Bound,
-                                        Err(e) => Out::Drop(e),
-                                    }
+                        Some(GmPeer {
+                            state:
+                                GmState::ReadyUnbound {
+                                    session,
+                                    peer_gm_pk,
+                                },
+                        }) => match session.recv(body) {
+                            Ok(pt) if pt.starts_with(gmpq::BIND_PREFIX) => {
+                                match gmpq::parse_bind(&pt, &from, peer_gm_pk, session.session_id())
+                                {
+                                    Ok(_) => Out::Bound,
+                                    Err(e) => Out::Drop(e),
                                 }
-                                Ok(_) => Out::Drop("data received before BIND"),
-                                Err(_) => Out::Drop("GM-PQ decryption failed"),
                             }
-                        }
-                        Some(GmPeer { state: GmState::Ready { session } }) => {
-                            match session.recv(body) {
-                                Ok(pt) => Out::Plain(pt),
-                                Err(_) => Out::Drop("GM-PQ decryption failed/replay"),
-                            }
-                        }
+                            Ok(_) => Out::Drop("data received before BIND"),
+                            Err(_) => Out::Drop("GM-PQ decryption failed"),
+                        },
+                        Some(GmPeer {
+                            state: GmState::Ready { session },
+                        }) => match session.recv(body) {
+                            Ok(pt) => Out::Plain(pt),
+                            Err(_) => Out::Drop("GM-PQ decryption failed/replay"),
+                        },
                         _ => Out::Ignore,
                     }
                 };
@@ -1206,12 +1405,17 @@ impl Actor {
                                 p.gm = Some(gp);
                             }
                         }
-                        self.emit(NodeEvent::SessionReady { peer: from, suite: "sm2+ml-kem-768+sm4-gcm" }).await;
+                        self.emit(NodeEvent::SessionReady {
+                            peer: from,
+                            suite: "sm2+ml-kem-768+sm4-gcm",
+                        })
+                        .await;
                         self.flush_pending(from).await;
                     }
                     Out::Plain(pt) => self.on_plain_inner(from, pt).await,
                     Out::Drop(e) => {
-                        self.emit(NodeEvent::Log(format!("GM-PQ dropped: {e} (peer={from})"))).await;
+                        self.emit(NodeEvent::Log(format!("GM-PQ dropped: {e} (peer={from})")))
+                            .await;
                     }
                     Out::Ignore => {}
                 }

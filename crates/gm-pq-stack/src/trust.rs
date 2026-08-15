@@ -44,7 +44,8 @@ impl PinFileAnchor {
     /// Load from a file
     pub fn from_file(path: impl AsRef<Path>) -> std::io::Result<Self> {
         let data = std::fs::read_to_string(path)?;
-        Self::parse(&data).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))
+        Self::parse(&data)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))
     }
 
     /// Parse from a string (for tests)
@@ -59,11 +60,14 @@ impl PinFileAnchor {
             let (name, hex_fp) = match (parts.next(), parts.next()) {
                 (Some(n), Some(h)) => (n, h),
                 _ => {
-                    return Err(Error::InvalidEncoding("pin line must be: name fingerprint-hex"));
+                    return Err(Error::InvalidEncoding(
+                        "pin line must be: name fingerprint-hex",
+                    ));
                 }
             };
-            let fp = decode_hex32(hex_fp)
-                .ok_or(Error::InvalidEncoding("pin fingerprint must be 64 hex chars (SM3 output)"))?;
+            let fp = decode_hex32(hex_fp).ok_or(Error::InvalidEncoding(
+                "pin fingerprint must be 64 hex chars (SM3 output)",
+            ))?;
             if pins.insert(fp, name.to_string()).is_some() {
                 return Err(Error::InvalidEncoding("duplicate pin fingerprint"));
             }

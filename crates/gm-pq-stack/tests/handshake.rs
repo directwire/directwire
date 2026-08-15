@@ -10,7 +10,10 @@ fn rng() -> SysRng {
 }
 
 /// Run one full handshake in memory (one-way auth variant), returning both sessions
-fn run_handshake<K: Kem>() -> (gm_pq_stack::handshake::Session, gm_pq_stack::handshake::Session) {
+fn run_handshake<K: Kem>() -> (
+    gm_pq_stack::handshake::Session,
+    gm_pq_stack::handshake::Session,
+) {
     let mut r = rng();
     let (i_sk, i_pk) = K::keypair(&mut r).unwrap();
     let (r_sk, r_pk) = K::keypair(&mut r).unwrap();
@@ -64,7 +67,10 @@ fn handshake_mutual_auth_hybrid() {
     let (m3, s_i) = init.write_msg3_with_auth(&mut r, &AllowAllAnchor).unwrap();
     let (s_r, authed_i_pk) = resp.read_msg3_with_auth(&m3, &AllowAllAnchor).unwrap();
 
-    assert_eq!(authed_i_pk, i_pk, "the initiator public key the responder sees must be the real one");
+    assert_eq!(
+        authed_i_pk, i_pk,
+        "the initiator public key the responder sees must be the real one"
+    );
     assert_eq!(s_i.session_id(), s_r.session_id());
 }
 
@@ -104,7 +110,10 @@ fn tampered_msg2_rejected() {
         Ok(_) => panic!("handshake must fail after tampering"),
         Err(e) => e,
     };
-    assert!(format!("{err}").contains("identity"), "should be a peer identity verification failure: {err}");
+    assert!(
+        format!("{err}").contains("identity"),
+        "should be a peer identity verification failure: {err}"
+    );
 }
 
 #[test]
@@ -123,7 +132,10 @@ fn tampered_msg3_signature_rejected() {
     // Tamper with the AEAD(s_i || sig) segment
     let last = m3.len() - 1;
     m3[last] ^= 0x01;
-    assert!(resp.read_msg3_with_auth(&m3, &AllowAllAnchor).is_err(), "must be rejected after tampering");
+    assert!(
+        resp.read_msg3_with_auth(&m3, &AllowAllAnchor).is_err(),
+        "must be rejected after tampering"
+    );
 }
 
 #[test]

@@ -57,7 +57,10 @@ fn state_timeout_fallback() {
         m.handle(PunchEvent::Tick),
         vec![PunchAction::SendPunch(addr(1001))]
     );
-    assert_eq!(m.handle(PunchEvent::Tick), vec![PunchAction::FallbackToRelay]);
+    assert_eq!(
+        m.handle(PunchEvent::Tick),
+        vec![PunchAction::FallbackToRelay]
+    );
     assert_eq!(m.state(), &PunchState::Failed);
     // Failed terminal state: subsequent events ignored
     assert!(m.handle(PunchEvent::PacketFrom(addr(1001))).is_empty());
@@ -83,8 +86,22 @@ async fn loopback_punch_establishes_direct() {
     let b_local = sb.local_addr().unwrap();
 
     let (ra, rb) = tokio::join!(
-        drive(&sa, &ida, &idb, vec![b_local], Duration::from_millis(50), 40),
-        drive(&sb, &idb, &ida, vec![a_local], Duration::from_millis(50), 40),
+        drive(
+            &sa,
+            &ida,
+            &idb,
+            vec![b_local],
+            Duration::from_millis(50),
+            40
+        ),
+        drive(
+            &sb,
+            &idb,
+            &ida,
+            vec![a_local],
+            Duration::from_millis(50),
+            40
+        ),
     );
     // each side's observed peer address should equal the other's local address (no translation on loopback)
     assert_eq!(ra.unwrap(), Some(b_local));

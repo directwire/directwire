@@ -83,11 +83,7 @@ impl TicketIssuer {
 
     /// Issue a ticket for one completed handshake, returning (ticket bytes, PSK).
     /// The PSK goes to both parties: sealed in the ticket by the server, stored by the client.
-    pub fn issue(
-        &self,
-        client_static_pk: &[u8],
-        ttl_secs: u64,
-    ) -> (Vec<u8>, Zeroizing<[u8; 32]>) {
+    pub fn issue(&self, client_static_pk: &[u8], ttl_secs: u64) -> (Vec<u8>, Zeroizing<[u8; 32]>) {
         let mut plain = Vec::with_capacity(TICKET_PLAIN_LEN);
         let mut psk = [0u8; 32];
         let mut ticket_id = [0u8; 16];

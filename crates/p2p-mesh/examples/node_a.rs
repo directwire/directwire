@@ -33,8 +33,14 @@ async fn main() {
             println!("[node-a] GM-PQ channel enabled (relay path will use the sm2+ml-kem-768 hybrid handshake)");
         }
     }
-    let mut node = Node::start(identity, cfg).await.expect("node-a start failed");
-    println!("[node-a] NodeId = {}, target peer = {}", node.node_id(), peer);
+    let mut node = Node::start(identity, cfg)
+        .await
+        .expect("node-a start failed");
+    println!(
+        "[node-a] NodeId = {}, target peer = {}",
+        node.node_id(),
+        peer
+    );
 
     // 1) before punching, send 3 messages via the relay
     node.connect_peer(peer).await;
@@ -61,7 +67,10 @@ async fn main() {
             }
             NodeEvent::DirectReady { .. } => println!("[node-a] QUIC direct ready"),
             NodeEvent::SessionReady { peer, suite } => {
-                println!("[node-a] encrypted session ready peer={} suite={}", peer, suite)
+                println!(
+                    "[node-a] encrypted session ready peer={} suite={}",
+                    peer, suite
+                )
             }
             NodeEvent::PathSwitch { from, to, .. } => {
                 println!("[node-a] *** path switch {:?} -> {:?} ***", from, to);
@@ -98,11 +107,28 @@ async fn main() {
     }
 
     // 3) latency comparison
-    let avg = |v: &[f64]| if v.is_empty() { f64::NAN } else { v.iter().sum::<f64>() / v.len() as f64 };
-    println!("\n========== latency comparison (loopback measured, {} / {} samples) ==========", relay_rtt.len(), direct_rtt.len());
+    let avg = |v: &[f64]| {
+        if v.is_empty() {
+            f64::NAN
+        } else {
+            v.iter().sum::<f64>() / v.len() as f64
+        }
+    };
+    println!(
+        "\n========== latency comparison (loopback measured, {} / {} samples) ==========",
+        relay_rtt.len(),
+        direct_rtt.len()
+    );
     println!("  relay  path avg RTT : {:.2} ms", avg(&relay_rtt));
     println!("  direct path avg RTT: {:.2} ms", avg(&direct_rtt));
-    println!("  path switch         : {}", if switched { "relay -> direct succeeded" } else { "not triggered (still on relay)" });
+    println!(
+        "  path switch         : {}",
+        if switched {
+            "relay -> direct succeeded"
+        } else {
+            "not triggered (still on relay)"
+        }
+    );
     println!("==========================================================");
     println!("note: on loopback both are sub-millisecond; on the public internet see README: direct 1-5ms vs relay 10-50ms.");
 }

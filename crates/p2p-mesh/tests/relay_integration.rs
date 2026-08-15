@@ -55,9 +55,21 @@ async fn relay_forwards_ciphertext_and_counts_traffic() {
     })
     .await
     .expect("stats query timed out");
-    assert!(report.contains(&format!("{}", ida)), "report should contain a: {}", report);
-    assert!(report.contains(&format!("{}", idb)), "report should contain b: {}", report);
-    assert!(report.contains("msgs=1"), "should count 1 message: {}", report);
+    assert!(
+        report.contains(&format!("{}", ida)),
+        "report should contain a: {}",
+        report
+    );
+    assert!(
+        report.contains(&format!("{}", idb)),
+        "report should contain b: {}",
+        report
+    );
+    assert!(
+        report.contains("msgs=1"),
+        "should count 1 message: {}",
+        report
+    );
     assert!(report.contains("up=100B"), "a uplink 100B: {}", report);
     assert!(report.contains("down=100B"), "b downlink 100B: {}", report);
 }
@@ -68,8 +80,15 @@ async fn relay_echoes_observed_address() {
     let relay_addr = spawn_relay().await;
     let ida = NodeIdentity::generate().node_id();
     let (_ca, observed) = RelayClient::connect(relay_addr, ida, vec![]).await.unwrap();
-    assert!(observed.ip().is_loopback(), "loopback observed should be 127.0.0.1");
-    assert_ne!(observed.port(), 0, "observed should carry the real source port");
+    assert!(
+        observed.ip().is_loopback(),
+        "loopback observed should be 127.0.0.1"
+    );
+    assert_ne!(
+        observed.port(),
+        0,
+        "observed should carry the real source port"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -86,8 +105,12 @@ async fn relay_brokers_candidate_exchange() {
         (SocketAddr::from(([127, 0, 0, 1], 50002)), CAND_QUIC),
     ];
 
-    let (mut ca, _) = RelayClient::connect(relay_addr, ida, a_cand.clone()).await.unwrap();
-    let (mut cb, _) = RelayClient::connect(relay_addr, idb, b_cand.clone()).await.unwrap();
+    let (mut ca, _) = RelayClient::connect(relay_addr, ida, a_cand.clone())
+        .await
+        .unwrap();
+    let (mut cb, _) = RelayClient::connect(relay_addr, idb, b_cand.clone())
+        .await
+        .unwrap();
 
     ca.punch_request(idb).await.unwrap();
 
@@ -100,8 +123,20 @@ async fn relay_brokers_candidate_exchange() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(ea, Frame::Exchange { peer: idb, cands: b_cand });
-    assert_eq!(eb, Frame::Exchange { peer: ida, cands: a_cand });
+    assert_eq!(
+        ea,
+        Frame::Exchange {
+            peer: idb,
+            cands: b_cand
+        }
+    );
+    assert_eq!(
+        eb,
+        Frame::Exchange {
+            peer: ida,
+            cands: a_cand
+        }
+    );
 
     // Re-registration: after updating candidates, brokering should use the new list
     let a_cand2 = vec![(SocketAddr::from(([127, 0, 0, 1], 40011)), CAND_PUNCH)];
@@ -139,5 +174,9 @@ async fn relay_rejects_unknown_target() {
         .await
         .unwrap()
         .unwrap();
-    assert!(matches!(f, Frame::Error { .. }), "expected Error, got {:?}", f);
+    assert!(
+        matches!(f, Frame::Error { .. }),
+        "expected Error, got {:?}",
+        f
+    );
 }

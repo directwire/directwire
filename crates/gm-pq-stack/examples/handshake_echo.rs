@@ -46,7 +46,9 @@ fn run_server<K: Kem>(listener: TcpListener) -> std::io::Result<()> {
     let mut session: Session = resp.read_msg3(&read_frame(&mut stream)?).expect("msg3");
 
     for _ in 0..3 {
-        let pt = session.recv(&read_frame(&mut stream)?).expect("decrypt failed");
+        let pt = session
+            .recv(&read_frame(&mut stream)?)
+            .expect("decrypt failed");
         write_frame(&mut stream, &session.send(&pt))?;
     }
     Ok(())
@@ -58,7 +60,9 @@ fn run_client<K: Kem>(addr: std::net::SocketAddr) -> (Duration, Duration) {
     let (sk, pk) = K::keypair(&mut rng).expect("client key generation failed");
 
     let mut stream = TcpStream::connect(addr).expect("connection failed");
-    stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
 
     let t0 = Instant::now();
     let mut init = Initiator::<K>::new(sk, pk);
@@ -99,7 +103,9 @@ fn bench<K: Kem>(mode: Mode) {
 fn main() {
     let mode_arg = std::env::args().nth(1).unwrap_or_else(|| "all".into());
     println!("gm-pq-stack loopback handshake + encrypted echo demo (127.0.0.1)");
-    println!("mode comparison: pure SM2 (compliant) / pure ML-KEM (post-quantum) / hybrid (recommended)\n");
+    println!(
+        "mode comparison: pure SM2 (compliant) / pure ML-KEM (post-quantum) / hybrid (recommended)\n"
+    );
 
     match mode_arg.as_str() {
         "sm2" => bench::<Sm2Kem>(Mode::Sm2Only),
@@ -111,5 +117,7 @@ fn main() {
             bench::<DefaultHybrid>(Mode::Hybrid);
         }
     }
-    println!("\nNote: the hybrid mode's cost is roughly the sum of both, buying the double insurance that the session stays secure even if one national algorithm standard is broken.");
+    println!(
+        "\nNote: the hybrid mode's cost is roughly the sum of both, buying the double insurance that the session stays secure even if one national algorithm standard is broken."
+    );
 }

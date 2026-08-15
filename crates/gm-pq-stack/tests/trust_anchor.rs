@@ -33,10 +33,19 @@ fn pin_file_parse_and_verify() {
 fn pin_file_rejects_garbage() {
     assert!(PinFileAnchor::parse("").is_err(), "empty file rejected");
     assert!(PinFileAnchor::parse("# comments only\n").is_err());
-    assert!(PinFileAnchor::parse("name-only\n").is_err(), "missing fingerprint rejected");
-    assert!(PinFileAnchor::parse("n abc123\n").is_err(), "invalid hex rejected");
+    assert!(
+        PinFileAnchor::parse("name-only\n").is_err(),
+        "missing fingerprint rejected"
+    );
+    assert!(
+        PinFileAnchor::parse("n abc123\n").is_err(),
+        "invalid hex rejected"
+    );
     let fp = hex32(&sm3(&[b"k"]));
-    assert!(PinFileAnchor::parse(&format!("a {fp}\nb {fp}\n")).is_err(), "duplicate fingerprint rejected");
+    assert!(
+        PinFileAnchor::parse(&format!("a {fp}\nb {fp}\n")).is_err(),
+        "duplicate fingerprint rejected"
+    );
 }
 
 #[test]
@@ -94,7 +103,10 @@ fn handshake_rejected_by_wrong_pin() {
         Ok(_) => panic!("wrong pin must abort the handshake"),
         Err(e) => e,
     };
-    assert!(format!("{err}").contains("identity"), "should be a peer identity verification failure: {err}");
+    assert!(
+        format!("{err}").contains("identity"),
+        "should be a peer identity verification failure: {err}"
+    );
 }
 
 /// AllowAllAnchor explicitly allows everything (tests only)

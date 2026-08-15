@@ -7,11 +7,17 @@ use p2p_mesh::path::{PathKind, PathManager, PathSample};
 const MS: Duration = Duration::from_millis(1); // Duration * u32 uses MS * n
 
 fn rtt(ms: u64) -> PathSample {
-    PathSample { rtt: Some(MS * ms as u32), loss: Some(0.0) }
+    PathSample {
+        rtt: Some(MS * ms as u32),
+        loss: Some(0.0),
+    }
 }
 
 fn rtt_loss(ms: u64, loss: f64) -> PathSample {
-    PathSample { rtt: Some(MS * ms as u32), loss: Some(loss) }
+    PathSample {
+        rtt: Some(MS * ms as u32),
+        loss: Some(loss),
+    }
 }
 
 #[test]
@@ -81,7 +87,10 @@ fn loss_metric_triggers_fallback() {
             t + Duration::from_millis(100 * i),
         );
     }
-    assert!(sw.is_some_and(|s| s.to == PathKind::Relay), "high loss should switch back to relay");
+    assert!(
+        sw.is_some_and(|s| s.to == PathKind::Relay),
+        "high loss should switch back to relay"
+    );
     assert_eq!(pm.active(), PathKind::Relay);
 }
 

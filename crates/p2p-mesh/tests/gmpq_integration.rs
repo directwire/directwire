@@ -26,11 +26,7 @@ async fn spawn_relay() -> SocketAddr {
     addr
 }
 
-async fn wait_event(
-    n: &mut Node,
-    pred: impl Fn(&NodeEvent) -> bool,
-    what: &str,
-) -> NodeEvent {
+async fn wait_event(n: &mut Node, pred: impl Fn(&NodeEvent) -> bool, what: &str) -> NodeEvent {
     tokio::time::timeout(T, async {
         loop {
             match n.next_event().await {
@@ -91,14 +87,27 @@ async fn gmpq_relay_fallback() {
     // a: should also see the GM-PQ session ready
     wait_event(
         &mut a,
-        |e| matches!(e, NodeEvent::SessionReady { suite: "sm2+ml-kem-768+sm4-gcm", .. }),
+        |e| {
+            matches!(
+                e,
+                NodeEvent::SessionReady {
+                    suite: "sm2+ml-kem-768+sm4-gcm",
+                    ..
+                }
+            )
+        },
         "a-side GM-PQ session ready",
     )
     .await;
 
     // reverse send also goes through the GM-PQ channel
     b.send_to(a.node_id(), b"gmpq-reply".to_vec()).await;
-    wait_event(&mut a, |e| matches!(e, NodeEvent::Message { .. }), "a receives reply").await;
+    wait_event(
+        &mut a,
+        |e| matches!(e, NodeEvent::Message { .. }),
+        "a receives reply",
+    )
+    .await;
 }
 
 /// peer has GM-PQ off: after the 3s timeout, fall back to X25519+ed25519; messages still reach
@@ -122,14 +131,28 @@ async fn gmpq_fallback_to_x25519() {
     a.send_to(idb, b"fallback works".to_vec()).await;
 
     // b receives the message via the X25519 session
-    match wait_event(&mut b, |e| matches!(e, NodeEvent::Message { .. }), "b receives message").await {
+    match wait_event(
+        &mut b,
+        |e| matches!(e, NodeEvent::Message { .. }),
+        "b receives message",
+    )
+    .await
+    {
         NodeEvent::Message { payload, .. } => assert_eq!(payload, b"fallback works"),
         _ => unreachable!(),
     }
     // a eventually establishes the X25519 session (GM-PQ timed out and fell back)
     wait_event(
         &mut a,
-        |e| matches!(e, NodeEvent::SessionReady { suite: "x25519+ed25519", .. }),
+        |e| {
+            matches!(
+                e,
+                NodeEvent::SessionReady {
+                    suite: "x25519+ed25519",
+                    ..
+                }
+            )
+        },
         "a falls back to the X25519 session",
     )
     .await;
@@ -167,7 +190,9 @@ async fn gmpq_punch_then_upgrade_to_direct() {
                     assert_eq!(payload, b"gmpq-msg-1-via-relay");
                     got_msg = true;
                 }
-                Some(NodeEvent::PunchResult { direct: Some(_), .. }) => got_punch = true,
+                Some(NodeEvent::PunchResult {
+                    direct: Some(_), ..
+                }) => got_punch = true,
                 Some(NodeEvent::DirectReady { .. }) => got_direct = true,
                 Some(_) => {}
                 None => panic!("b event channel closed"),
@@ -182,7 +207,9 @@ async fn gmpq_punch_then_upgrade_to_direct() {
         let (mut got_punch, mut got_direct, mut got_switch) = (false, false, false);
         while !(got_punch && got_direct && got_switch) {
             match a.next_event().await {
-                Some(NodeEvent::PunchResult { direct: Some(_), .. }) => got_punch = true,
+                Some(NodeEvent::PunchResult {
+                    direct: Some(_), ..
+                }) => got_punch = true,
                 Some(NodeEvent::DirectReady { .. }) => got_direct = true,
                 Some(NodeEvent::PathSwitch { from, to, .. }) if to == PathKind::Direct => {
                     assert_eq!(from, PathKind::Relay);
@@ -200,7 +227,15 @@ async fn gmpq_punch_then_upgrade_to_direct() {
     a.send_to(idb, b"gmpq-msg-2-via-direct".to_vec()).await;
     match wait_event(
         &mut b,
-        |e| matches!(e, NodeEvent::Message { via: PathKind::Direct, .. }),
+        |e| {
+            matches!(
+                e,
+                NodeEvent::Message {
+                    via: PathKind::Direct,
+                    ..
+                }
+            )
+        },
         "b receives message via direct",
     )
     .await
@@ -213,5 +248,10 @@ async fn gmpq_punch_then_upgrade_to_direct() {
     }
 
     b.send_to(ida, b"gmpq-reply".to_vec()).await;
-    wait_event(&mut a, |e| matches!(e, NodeEvent::Message { .. }), "a receives reply").await;
+    wait_event(
+        &mut a,
+        |e| matches!(e, NodeEvent::Message { .. }),
+        "a receives reply",
+    )
+    .await;
 }

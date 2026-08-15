@@ -51,7 +51,9 @@ impl Kem for Sm2Kem {
 
     fn validate_public(pk: &[u8]) -> Result<()> {
         if pk.len() != Self::PUBLIC_KEY_LEN {
-            return Err(Error::InvalidEncoding("SM2 public key must be a 65-byte uncompressed point"));
+            return Err(Error::InvalidEncoding(
+                "SM2 public key must be a 65-byte uncompressed point",
+            ));
         }
         // Validity (on-curve) is checked internally by ecdh; here we only do a length pre-check
         Ok(())
@@ -71,7 +73,9 @@ impl StaticAuth for Sm2Kem {
     fn verify(pk: &[u8], transcript_hash: &[u8; 32], sig: &[u8]) -> Result<()> {
         Self::validate_public(pk)?;
         if sig.len() != Self::SIGNATURE_LEN {
-            return Err(Error::InvalidEncoding("SM2 signature must be 64 bytes (r||s)"));
+            return Err(Error::InvalidEncoding(
+                "SM2 signature must be 64 bytes (r||s)",
+            ));
         }
         let pub_key: &[u8; 65] = pk.try_into().unwrap();
         let sig_arr: &[u8; 64] = sig.try_into().unwrap();
