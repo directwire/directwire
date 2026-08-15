@@ -16,21 +16,26 @@ Today's agents are chained to central brokers and cloud relays. Directwire gives
 
 ## Status
 
-**Research preview (v0.1).** The protocol is under active design; the reference implementation is a clean-room architecture-validation baseline. SemVer will not be meaningful until v1.
+**Research preview (v0.2).** The protocol is under active design; the reference implementation is a clean-room architecture-validation baseline. SemVer will not be meaningful until v1.
 
 ## Workspace
 
-Two crates:
+Five crates — one security foundation, four planes built on it:
 
-| crate | role |
-|---|---|
-| [`gm-pq-stack`](crates/gm-pq-stack) | Hybrid national-crypto + post-quantum transport: SM2 + ML-KEM-768 hybrid handshake, SM4-GCM sessions, replay protection, cookie anti-DoS, 0-RTT resumption |
-| [`p2p-mesh`](crates/p2p-mesh) | iroh-style public-key mesh networking: relay brokering, NAT hole punching, QUIC simultaneous-open direct, adaptive path selection |
+| crate | plane | role |
+|---|---|---|
+| [`gm-pq-stack`](crates/gm-pq-stack) | security | Hybrid national-crypto + post-quantum transport: SM2 + ML-KEM-768 hybrid handshake, SM4-GCM sessions, replay protection, cookie anti-DoS, 0-RTT resumption |
+| [`p2p-mesh`](crates/p2p-mesh) | connectivity | iroh-style public-key mesh networking: relay brokering, NAT hole punching, QUIC simultaneous-open direct, adaptive path selection (RTT + loss), multi-peer |
+| [`moq-live`](crates/moq-live) | media | MoQ-lite pub/sub media transport: stream-per-group, relay-as-cache with GOP catch-up, priority drop queue, full control plane |
+| [`homa-rpc`](crates/homa-rpc) | rpc | Homa-style message-oriented RPC: receiver-driven GRANT scheduling (SRPT), 8-level QoS, unscheduled first-RTT window — short-RPC latency vs TCP baseline |
+| [`xdp-edge`](crates/xdp-edge) | edge | eBPF/XDP gateway data plane: Maglev LB, DDoS fast-path drops, conntrack, plus a userspace reference simulator (~5 Mpps single-thread) and control-plane agent |
+
+`moq-live` and `p2p-mesh` can layer the `gm-pq` feature on top of `gm-pq-stack` for a national-crypto + post-quantum session above QUIC/TCP.
 
 ## Quickstart
 
 ```bash
-# run all workspace tests (both crates)
+# run all workspace tests (all crates)
 cargo test --workspace --all-features
 
 # three-process mesh demo (see crates/p2p-mesh/README.md)
@@ -61,11 +66,12 @@ flowchart LR
 - [Protocol specification](SPEC.md)
 - [Protocol deep-dive: design rationale](docs/protocol-deep-dive.md)
 - [Security considerations](SPEC.md#security-considerations)
-- [p2p-mesh README](crates/p2p-mesh/README.md)
+- [p2p-mesh README](crates/p2p-mesh/README.md) · [moq-live README](crates/moq-live/README.md) · [homa-rpc README](crates/homa-rpc/README.md) · [xdp-edge README](crates/xdp-edge/README.md)
 - [gm-pq-stack README](crates/gm-pq-stack/README.md)
 - [Integrating the crypto stack](crates/gm-pq-stack/docs/INTEGRATION.md)
+- [Changelog](CHANGELOG.md) · [Governance](GOVERNANCE.md)
 - [Security policy](SECURITY.md)
-- [Contributing](CONTRIBUTING.md)
+- [Contributing](CONTRIBUTING.md) · [Code of Conduct](CODE_OF_CONDUCT.md)
 
 ## License
 

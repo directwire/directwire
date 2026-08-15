@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/gm-pq-stack", "crates/p2p-mesh"]
+members = ["crates/gm-pq-stack", "crates/p2p-mesh", "crates/moq-live", "crates/homa-rpc", "crates/xdp-edge"]
 
 [workspace.package]
 license = "Apache-2.0"

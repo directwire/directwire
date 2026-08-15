@@ -1,0 +1,7 @@
+# Funding and sponsorship for Directwire development.
+# Uncomment / fill in the channels you want to activate.
+
+# github: [directwire]          # GitHub Sponsors (enable at github.com/sponsors)
+# open_collective: directwire   # Open Collective
+custom:
+  - https://github.com/directwire/directwire#sponsor

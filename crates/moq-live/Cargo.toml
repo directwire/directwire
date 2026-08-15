@@ -1,0 +1,39 @@
+[package]
+name = "moq-live"
+version = "0.1.0"
+edition = "2024"
+description = "MoQ-lite MVP：基于 Rust + quinn 的 Media over QUIC 低延迟直播传输骨架"
+license = "Apache-2.0"
+
+[features]
+default = []
+# 国密+后量子混合握手会话层（QUIC TLS 之上）：接入隔壁 gm-pq-stack。
+# 默认关闭；开启后首条 bi-stream 先跑 SM2+ML-KEM-768 混合握手，通过后才放行控制面。
+gm-pq = ["dep:gm-pq-stack"]
+
+[dependencies]
+# QUIC 传输（ring 作为 rustls 加密后端，避免 aws-lc-rs 对 cmake 的依赖）
+quinn = { version = "0.11", default-features = false, features = [
+    "rustls-ring",
+    "runtime-tokio",
+] }
+# 异步运行时
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "sync",
+    "time",
+    "io-util",
+] }
+# 零拷贝字节缓冲
+bytes = "1"
+# 国密+PQ 混合握手栈（可选，feature gm-pq 开启）
+gm-pq-stack = { path = "../gm-pq-stack", optional = true }
+
+[dev-dependencies]
+# 仅示例/测试用：自签名证书生成（ring 后端）
+rcgen = { version = "0.13", default-features = false, features = ["ring", "pem"] }
+
+[[example]]
+name = "gmpq_demo"
+required-features = ["gm-pq"]
