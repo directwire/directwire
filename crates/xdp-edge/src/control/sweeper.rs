@@ -19,7 +19,12 @@ pub struct ConntrackSweeper {
 
 impl ConntrackSweeper {
     pub fn new(interval_ns: u64) -> Self {
-        Self { interval_ns, next_run_ns: interval_ns, total_swept: 0, rounds: 0 }
+        Self {
+            interval_ns,
+            next_run_ns: interval_ns,
+            total_swept: 0,
+            rounds: 0,
+        }
     }
 
     /// 每个控制面 tick 调用；到点则执行一轮清扫，返回本轮清扫条数
@@ -48,7 +53,13 @@ mod tests {
     const S: u64 = 1_000_000_000;
 
     fn key(i: u32) -> FiveTuple {
-        FiveTuple { src_ip: i, dst_ip: 0xcb00_7101, src_port: 1024, dst_port: 443, protocol: PROTO_TCP }
+        FiveTuple {
+            src_ip: i,
+            dst_ip: 0xcb00_7101,
+            src_port: 1024,
+            dst_port: 443,
+            protocol: PROTO_TCP,
+        }
     }
 
     #[test]
@@ -56,10 +67,22 @@ mod tests {
         let mut ct = ConnTrack::new(1024, 10 * S); // TTL 10s
         // t=0 插入 5 条，t=8s 插入 5 条
         for i in 0..5 {
-            ct.insert(key(i), ConnEntry { backend_ip: 1, last_seen_ns: 0 });
+            ct.insert(
+                key(i),
+                ConnEntry {
+                    backend_ip: 1,
+                    last_seen_ns: 0,
+                },
+            );
         }
         for i in 5..10 {
-            ct.insert(key(i), ConnEntry { backend_ip: 1, last_seen_ns: 8 * S });
+            ct.insert(
+                key(i),
+                ConnEntry {
+                    backend_ip: 1,
+                    last_seen_ns: 8 * S,
+                },
+            );
         }
         // t=12s 清扫：前 5 条过期（12s>10s），后 5 条存活（4s<10s）
         let n = ct.sweep_expired(12 * S);
@@ -74,7 +97,13 @@ mod tests {
     fn sweeper_runs_on_schedule() {
         let mut sw = ConntrackSweeper::new(30 * S); // 30s 一轮
         let mut ct = ConnTrack::new(1024, 10 * S);
-        ct.insert(key(1), ConnEntry { backend_ip: 1, last_seen_ns: 0 });
+        ct.insert(
+            key(1),
+            ConnEntry {
+                backend_ip: 1,
+                last_seen_ns: 0,
+            },
+        );
 
         assert_eq!(sw.tick(&mut ct, 10 * S), None, "未到清扫时间");
         let n = sw.tick(&mut ct, 31 * S);

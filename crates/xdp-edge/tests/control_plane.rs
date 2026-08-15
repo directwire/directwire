@@ -5,7 +5,7 @@
 //! 故障后端不再收到新连接；同时验证周期清扫回收过期连接。
 
 use xdp_edge::control::{AgentConfig, ControlAgent};
-use xdp_edge::packet::{Action, FiveTuple, Packet, PROTO_TCP, TCP_ACK};
+use xdp_edge::packet::{Action, FiveTuple, PROTO_TCP, Packet, TCP_ACK};
 use xdp_edge::simulator::{SimConfig, XdpSimulator};
 
 const S: u64 = 1_000_000_000;
@@ -27,8 +27,16 @@ fn flow_pkt(i: u32) -> Packet {
 #[test]
 fn control_plane_failover_end_to_end() {
     let backends = [0x0a00_0001u32, 0x0a00_0002, 0x0a00_0003, 0x0a00_0004];
-    let sim_cfg = SimConfig { rate_per_sec: 1e9, rate_burst: 1e6, conntrack_timeout_ns: 60 * S, ..Default::default() };
-    let agent_cfg = AgentConfig { lut_size: 4099, ..Default::default() };
+    let sim_cfg = SimConfig {
+        rate_per_sec: 1e9,
+        rate_burst: 1e6,
+        conntrack_timeout_ns: 60 * S,
+        ..Default::default()
+    };
+    let agent_cfg = AgentConfig {
+        lut_size: 4099,
+        ..Default::default()
+    };
 
     let mut sim = XdpSimulator::new(&sim_cfg, &backends, 4099);
     let mut agent = ControlAgent::new(&agent_cfg, &backends);
@@ -99,7 +107,11 @@ fn periodic_sweep_bounds_conntrack() {
         conntrack_timeout_ns: 10 * S, // TTL 10s
         ..Default::default()
     };
-    let agent_cfg = AgentConfig { lut_size: 4099, sweep_interval_ns: 5 * S, ..Default::default() };
+    let agent_cfg = AgentConfig {
+        lut_size: 4099,
+        sweep_interval_ns: 5 * S,
+        ..Default::default()
+    };
     let mut sim = XdpSimulator::new(&sim_cfg, &backends, 4099);
     let mut agent = ControlAgent::new(&agent_cfg, &backends);
 

@@ -42,14 +42,24 @@ pub struct HealthChecker {
 impl HealthChecker {
     pub fn new(interval_ns: u64, fall: u32, rise: u32) -> Self {
         assert!(fall >= 1 && rise >= 1);
-        Self { backends: HashMap::new(), interval_ns, fall, rise }
+        Self {
+            backends: HashMap::new(),
+            interval_ns,
+            fall,
+            rise,
+        }
     }
 
     /// 注册后端（初始 Unknown，立即可探测）
     pub fn register(&mut self, backend: u32) {
         self.backends.insert(
             backend,
-            BackendHealth { state: Health::Unknown, last_ok: None, streak: 0, last_probe_ns: u64::MAX },
+            BackendHealth {
+                state: Health::Unknown,
+                last_ok: None,
+                streak: 0,
+                last_probe_ns: u64::MAX,
+            },
         );
     }
 
@@ -74,9 +84,15 @@ impl HealthChecker {
 
     /// 回填一次探测结果，返回该后端状态是否发生翻转
     pub fn report(&mut self, backend: u32, ok: bool, now_ns: u64) -> bool {
-        let Some(h) = self.backends.get_mut(&backend) else { return false };
+        let Some(h) = self.backends.get_mut(&backend) else {
+            return false;
+        };
         h.last_probe_ns = now_ns;
-        h.streak = if h.last_ok == Some(ok) { h.streak + 1 } else { 1 };
+        h.streak = if h.last_ok == Some(ok) {
+            h.streak + 1
+        } else {
+            1
+        };
         h.last_ok = Some(ok);
 
         let old = h.state;

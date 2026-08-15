@@ -145,7 +145,9 @@ mod tests {
         let before: Vec<u32> = {
             let s1 = puber.snapshot();
             assert_eq!(s1.version, 1);
-            (0..10_000u32).map(|i| s1.lookup(flow_hash(&flow(i)))).collect()
+            (0..10_000u32)
+                .map(|i| s1.lookup(flow_hash(&flow(i))))
+                .collect()
         };
 
         let v2 = puber.publish(&[1, 2, 3, 4, 5]); // 扩容一个后端

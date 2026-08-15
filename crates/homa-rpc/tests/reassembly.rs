@@ -22,7 +22,14 @@ fn src() -> SocketAddr {
 
 fn chunk(msg_id: u64, total: u32, offset: u32, payload: &[u8]) -> (Packet, Vec<u8>) {
     (
-        Packet::new(PacketType::Data, 0, msg_id, total, offset, payload.len() as u32),
+        Packet::new(
+            PacketType::Data,
+            0,
+            msg_id,
+            total,
+            offset,
+            payload.len() as u32,
+        ),
         payload.to_vec(),
     )
 }

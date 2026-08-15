@@ -7,7 +7,13 @@ use moq_live::dropq::{PriorityDropQueue, PushOutcome};
 use moq_live::track::Object;
 
 fn obj(group: u64, id: u64, priority: u8) -> Arc<Object> {
-    Arc::new(Object::new(group, id, priority, 0, Bytes::from_static(b"f")))
+    Arc::new(Object::new(
+        group,
+        id,
+        priority,
+        0,
+        Bytes::from_static(b"f"),
+    ))
 }
 
 #[test]

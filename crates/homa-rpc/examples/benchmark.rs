@@ -60,7 +60,10 @@ impl Stats {
 
 /// 运行一轮混合负载。homa=true 走本实现，false 走 TCP 对照。
 fn run_mixed(homa: bool) -> Stats {
-    let stats = Stats { short: Vec::new(), long: Vec::new() };
+    let stats = Stats {
+        short: Vec::new(),
+        long: Vec::new(),
+    };
     let stats = Arc::new(Mutex::new(stats));
     let counter = Arc::new(AtomicU64::new(0));
 
@@ -100,29 +103,31 @@ fn run_mixed(homa: bool) -> Stats {
         let target = Arc::clone(&target);
         let sp = Arc::clone(&short_payload);
         let lp = Arc::clone(&long_payload);
-        handles.push(std::thread::spawn(move || loop {
-            let n = counter.fetch_add(1, Ordering::Relaxed);
-            if n >= TOTAL_OPS {
-                break;
-            }
-            // 每 11 次有 1 次长 RPC → 550 次中含 50 次长 RPC
-            let is_long = n % 11 == 10;
-            let payload = if is_long { &lp } else { &sp };
-            let start = Instant::now();
-            match &*target {
-                Target::Homa(client, addr, _server) => {
-                    client.call(*addr, payload).unwrap();
+        handles.push(std::thread::spawn(move || {
+            loop {
+                let n = counter.fetch_add(1, Ordering::Relaxed);
+                if n >= TOTAL_OPS {
+                    break;
                 }
-                Target::Tcp(addr, _server) => {
-                    tcp_baseline::call(*addr, payload).unwrap();
+                // 每 11 次有 1 次长 RPC → 550 次中含 50 次长 RPC
+                let is_long = n % 11 == 10;
+                let payload = if is_long { &lp } else { &sp };
+                let start = Instant::now();
+                match &*target {
+                    Target::Homa(client, addr, _server) => {
+                        client.call(*addr, payload).unwrap();
+                    }
+                    Target::Tcp(addr, _server) => {
+                        tcp_baseline::call(*addr, payload).unwrap();
+                    }
                 }
-            }
-            let el = start.elapsed();
-            let mut s = stats.lock().unwrap();
-            if is_long {
-                s.long.push(el);
-            } else {
-                s.short.push(el);
+                let el = start.elapsed();
+                let mut s = stats.lock().unwrap();
+                if is_long {
+                    s.long.push(el);
+                } else {
+                    s.short.push(el);
+                }
             }
         }));
     }
@@ -137,13 +142,20 @@ fn run_mixed(homa: bool) -> Stats {
         total
     );
     // 解包共享统计（此注释说明：所有工作线程已 join，Arc 必然独占）
-    let s = Arc::try_unwrap(stats).ok().expect("workers joined").into_inner().unwrap();
+    let s = Arc::try_unwrap(stats)
+        .ok()
+        .expect("workers joined")
+        .into_inner()
+        .unwrap();
     s
 }
 
 fn main() {
     println!("=== homa-rpc vs TCP loopback 混合负载 benchmark ===");
-    println!("负载: {TOTAL_OPS} 次调用, ~91% {SHORT_BYTES}B 短 RPC + ~9% {}MiB 长 RPC, {WORKERS} 并发线程\n", LONG_BYTES >> 20);
+    println!(
+        "负载: {TOTAL_OPS} 次调用, ~91% {SHORT_BYTES}B 短 RPC + ~9% {}MiB 长 RPC, {WORKERS} 并发线程\n",
+        LONG_BYTES >> 20
+    );
 
     println!("-- homa-rpc (Homa-lite over UDP, GRANT/SRPT 调度) --");
     let homa = run_mixed(true);

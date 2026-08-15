@@ -104,8 +104,14 @@ fn 随进度推进授权窗口且完成后切换下一条() {
 
     // overcommit=2：两条消息都在授权集合内，各自拿到授权窗口 1000+2000=3000
     let g = grants(&actions);
-    assert_eq!(g.iter().filter(|p| p.msg_id == 1).last().unwrap().offset, 3000);
-    assert_eq!(g.iter().filter(|p| p.msg_id == 2).last().unwrap().offset, 3000);
+    assert_eq!(
+        g.iter().filter(|p| p.msg_id == 1).last().unwrap().offset,
+        3000
+    );
+    assert_eq!(
+        g.iter().filter(|p| p.msg_id == 2).last().unwrap().offset,
+        3000
+    );
 
     // 模拟发送端按授权把 msg1 剩余两个分片发完 → msg1 交付
     actions.clear();
@@ -115,7 +121,11 @@ fn 随进度推进授权窗口且完成后切换下一条() {
         rx.handle_data(src(), &p, &payload, now, &mut actions);
     }
     // msg1 应已交付
-    assert!(actions.iter().any(|a| matches!(a, Action::Deliver { msg_id: 1, .. })));
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::Deliver { msg_id: 1, .. }))
+    );
 
     // msg2 继续按授权窗口推进：再补两个分片（收到 3000），在途额度耗尽后应追加 GRANT 到 5000
     actions.clear();
@@ -144,14 +154,21 @@ fn 短消息全程无需授权直接交付() {
     let p = Packet::new(PacketType::Data, 0, 42, 900, 0, 900);
     rx.handle_data(src(), &p, &payload, now, &mut actions);
 
-    assert!(actions.iter().any(|a| matches!(a, Action::Deliver { msg_id: 42, data, .. } if data == &payload)));
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, Action::Deliver { msg_id: 42, data, .. } if data == &payload))
+    );
     assert!(grants(&actions).is_empty(), "短消息不应触发 GRANT");
 }
 
 #[test]
 fn overcommit同时授权前k短消息() {
     // overcommit=2：三条消息，新一轮调度应只覆盖最短的两条
-    let cfg = TransportConfig { overcommit: 2, ..test_cfg() };
+    let cfg = TransportConfig {
+        overcommit: 2,
+        ..test_cfg()
+    };
     let mut rx = ReceiverCore::new(cfg);
     let now = Instant::now();
     let mut actions = Vec::new();
@@ -167,7 +184,10 @@ fn overcommit同时授权前k短消息() {
     rx.handle_data(src(), &p3, &d3, now, &mut actions);
     let g = grants(&actions);
     assert!(g.iter().any(|p| p.msg_id == 3), "最短的 msg3 必须获得授权");
-    assert!(!g.iter().any(|p| p.msg_id == 1), "最长的 msg1 不应在本轮再获新授权");
+    assert!(
+        !g.iter().any(|p| p.msg_id == 1),
+        "最长的 msg1 不应在本轮再获新授权"
+    );
 }
 
 #[test]
@@ -188,12 +208,24 @@ fn 长消息授权耗尽且等待超阈值后强制获得授权() {
     rx.handle_data(src(), &p1, &d1, t0, &mut actions);
     // t0+10: 更短的 msg2 到达 → 抢占授权集合（msg1 窗口还剩 2000 在途，不算饿死）
     let (p2, d2) = first_chunk(2, 5000);
-    rx.handle_data(src(), &p2, &d2, t0 + Duration::from_millis(10), &mut actions);
+    rx.handle_data(
+        src(),
+        &p2,
+        &d2,
+        t0 + Duration::from_millis(10),
+        &mut actions,
+    );
     // t0+20: msg1 把在途窗口用尽（收到 3000 = granted_to），此后来不到新授权 → 开始挨饿
     for i in 1..3u32 {
         let payload = vec![1u8; 1000];
         let p = Packet::new(PacketType::Data, 0, 1, 9000, i * 1000, 1000);
-        rx.handle_data(src(), &p, &payload, t0 + Duration::from_millis(20), &mut actions);
+        rx.handle_data(
+            src(),
+            &p,
+            &payload,
+            t0 + Duration::from_millis(20),
+            &mut actions,
+        );
     }
     actions.clear();
 

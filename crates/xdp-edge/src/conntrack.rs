@@ -130,11 +130,23 @@ impl ConnTrack {
 
     fn alloc_node(&mut self, key: FiveTuple, value: ConnEntry) -> u32 {
         if let Some(idx) = self.free.pop() {
-            self.nodes[idx as usize] = Node { key, value, prev: NIL, next: NIL, used: true };
+            self.nodes[idx as usize] = Node {
+                key,
+                value,
+                prev: NIL,
+                next: NIL,
+                used: true,
+            };
             idx
         } else {
             let idx = self.nodes.len() as u32;
-            self.nodes.push(Node { key, value, prev: NIL, next: NIL, used: true });
+            self.nodes.push(Node {
+                key,
+                value,
+                prev: NIL,
+                next: NIL,
+                used: true,
+            });
             idx
         }
     }
@@ -191,11 +203,20 @@ mod tests {
     use crate::packet::{FiveTuple, PROTO_TCP};
 
     fn key(port: u16) -> FiveTuple {
-        FiveTuple { src_ip: 0x0a00_0001, dst_ip: 0x0a00_0002, src_port: port, dst_port: 80, protocol: PROTO_TCP }
+        FiveTuple {
+            src_ip: 0x0a00_0001,
+            dst_ip: 0x0a00_0002,
+            src_port: port,
+            dst_port: 80,
+            protocol: PROTO_TCP,
+        }
     }
 
     fn entry(t: u64) -> ConnEntry {
-        ConnEntry { backend_ip: 0xc0a8_0001, last_seen_ns: t }
+        ConnEntry {
+            backend_ip: 0xc0a8_0001,
+            last_seen_ns: t,
+        }
     }
 
     #[test]

@@ -21,7 +21,9 @@ pub struct TxQueues {
 
 impl TxQueues {
     pub fn new() -> Self {
-        Self { queues: Default::default() }
+        Self {
+            queues: Default::default(),
+        }
     }
 
     /// 把一个待发包按类型归类：DATA 按优先级入队，控制包返回给调用方直发

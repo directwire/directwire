@@ -91,7 +91,11 @@ impl Maglev {
     /// 创建 Maglev 实例。m 必须为大质数（Katran 默认 65537）。
     pub fn new(m: usize) -> Self {
         assert!(is_prime(m), "Maglev 表大小必须为质数");
-        Self { m, table: vec![u32::MAX; m], backends: Vec::new() }
+        Self {
+            m,
+            table: vec![u32::MAX; m],
+            backends: Vec::new(),
+        }
     }
 
     /// 用给定的后端集合重建 LUT。
@@ -103,7 +107,10 @@ impl Maglev {
     /// 直接装载控制面构建好的 LUT（热下发路径：数据面不重算，仅切换指针）。
     pub fn load_table(&mut self, backends: Vec<u32>, table: Vec<u32>) {
         assert_eq!(table.len(), self.m, "LUT 尺寸与表大小不符");
-        assert!(table.iter().all(|&v| (v as usize) < backends.len()), "LUT 含越界后端索引");
+        assert!(
+            table.iter().all(|&v| (v as usize) < backends.len()),
+            "LUT 含越界后端索引"
+        );
         self.backends = backends;
         self.table = table;
     }

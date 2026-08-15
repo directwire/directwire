@@ -67,7 +67,12 @@ pub struct ServerIdentity {
 
 impl ServerIdentity {
     /// cookie TTL 30s，票据 TTL 由参数指定。
-    pub fn new(sk: StaticSecretKey, pk: Vec<u8>, anchor: PinFileAnchor, ticket_ttl_secs: u64) -> Self {
+    pub fn new(
+        sk: StaticSecretKey,
+        pk: Vec<u8>,
+        anchor: PinFileAnchor,
+        ticket_ttl_secs: u64,
+    ) -> Self {
         Self {
             sk,
             pk,
@@ -136,7 +141,10 @@ fn shared_push_wire(shared: &Shared, bytes: &[u8]) {
 fn shared_push_outbox(shared: &Shared, msg: Vec<u8>) -> io::Result<()> {
     let mut g = shared.m.lock().expect("桥锁中毒");
     if g.closed {
-        return Err(io::Error::new(io::ErrorKind::BrokenPipe, "GM-PQ 会话已关闭"));
+        return Err(io::Error::new(
+            io::ErrorKind::BrokenPipe,
+            "GM-PQ 会话已关闭",
+        ));
     }
     g.outbox.push_back(msg);
     shared.cv.notify_one();
@@ -201,8 +209,8 @@ async fn shuttle(mut qsend: SendStream, mut qrecv: RecvStream, shared: Shared) {
             loop {
                 match qrecv.read(&mut buf).await {
                     Ok(Some(n)) => shared_push_inbound(&shared, &buf[..n]),
-                    Ok(None) => break,   // 对端 finish
-                    Err(_) => break,     // 连接错误
+                    Ok(None) => break, // 对端 finish
+                    Err(_) => break,   // 连接错误
                 }
             }
             shared_close(&shared); // 入向结束 → 唤醒 worker 与出向退出
@@ -261,7 +269,11 @@ impl GmPqInfo {
         format!(
             "{}/{}",
             algorithm_name(),
-            if self.resumed { "0-RTT恢复" } else { "完整握手" }
+            if self.resumed {
+                "0-RTT恢复"
+            } else {
+                "完整握手"
+            }
         )
     }
 }
@@ -320,12 +332,7 @@ pub async fn server_handshake(
             client_tag: &client_tag,
             ticket_ttl_secs: id2.ticket_ttl_secs,
         };
-        let result = server_accept(
-            end,
-            clone_secret(&id2.sk),
-            id2.pk.clone(),
-            &mut cfg,
-        );
+        let result = server_accept(end, clone_secret(&id2.sk), id2.pk.clone(), &mut cfg);
         drop(cache); // 握手完成后释放票据缓存锁（红线 3：跨连接共享但不长占）
         match result {
             Ok(ServerOutcome {
@@ -352,7 +359,12 @@ pub async fn server_handshake(
     let info = rx
         .await
         .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "GM-PQ 工作线程退出"))?
-        .map_err(|e| io::Error::new(io::ErrorKind::PermissionDenied, format!("GM-PQ 握手失败: {e}")))?;
+        .map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                format!("GM-PQ 握手失败: {e}"),
+            )
+        })?;
     Ok((
         GmPqSender { shared },
         GmPqReceiver { inbox: inbox_rx },
@@ -386,12 +398,7 @@ pub async fn client_handshake(
                 &psk,
                 Some(EARLY_DATA_PROBE), // 红线 2：幂等探针
             ),
-            None => client_connect_full(
-                end,
-                clone_secret(&id2.sk),
-                id2.pk.clone(),
-                &id2.anchor,
-            ),
+            None => client_connect_full(end, clone_secret(&id2.sk), id2.pk.clone(), &id2.anchor),
         };
         match result {
             Ok(ClientOutcome {
@@ -427,7 +434,12 @@ pub async fn client_handshake(
     let info = rx
         .await
         .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "GM-PQ 工作线程退出"))?
-        .map_err(|e| io::Error::new(io::ErrorKind::PermissionDenied, format!("GM-PQ 握手失败: {e}")))?;
+        .map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                format!("GM-PQ 握手失败: {e}"),
+            )
+        })?;
     Ok((
         GmPqSender { shared },
         GmPqReceiver { inbox: inbox_rx },

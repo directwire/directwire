@@ -79,7 +79,14 @@ impl ReceiverCore {
     }
 
     /// 处理一个 DATA 包：写入重组位图，齐了交付，随后跑一轮调度
-    pub fn handle_data(&mut self, src: SocketAddr, pkt: &Packet, payload: &[u8], now: Instant, actions: &mut Vec<Action>) {
+    pub fn handle_data(
+        &mut self,
+        src: SocketAddr,
+        pkt: &Packet,
+        payload: &[u8],
+        now: Instant,
+        actions: &mut Vec<Action>,
+    ) {
         let key = (src, pkt.msg_id);
         if self.completed.contains(&key) {
             return; // 已交付消息的迟到重复分片，直接丢弃
@@ -142,7 +149,9 @@ impl ReceiverCore {
         let grant_timeout = self.cfg.grant_timeout;
         let keys: Vec<_> = self.incoming.keys().copied().collect();
         for key in keys {
-            let Some(msg) = self.incoming.get(&key) else { continue };
+            let Some(msg) = self.incoming.get(&key) else {
+                continue;
+            };
             if now.duration_since(msg.last_progress) < resend_timeout {
                 continue;
             }
@@ -222,12 +231,16 @@ impl ReceiverCore {
     /// 避免「每收一个分片发一个 GRANT」的自时钟碎包开销
     fn issue_grant(&mut self, key: MsgKey, now: Instant, actions: &mut Vec<Action>, force: bool) {
         let increment = self.cfg.grant_increment;
-        let Some(msg) = self.incoming.get_mut(&key) else { return };
+        let Some(msg) = self.incoming.get_mut(&key) else {
+            return;
+        };
         let outstanding = msg.granted_to.saturating_sub(msg.received_bytes);
         if !force && outstanding >= increment / 2 {
             return; // 窗口尚有富余，无需新授权
         }
-        let target = (msg.received_bytes + increment).min(msg.total_len).max(msg.granted_to);
+        let target = (msg.received_bytes + increment)
+            .min(msg.total_len)
+            .max(msg.granted_to);
         if target == msg.granted_to && !force {
             return;
         }
@@ -256,7 +269,11 @@ impl ReceiverCore {
             self.completed.pop_front();
         }
         self.completed.push_back(key);
-        actions.push(Action::Deliver { src, msg_id: key.1, data });
+        actions.push(Action::Deliver {
+            src,
+            msg_id: key.1,
+            data,
+        });
     }
 
     /// 测试/观测用：当前在收消息数

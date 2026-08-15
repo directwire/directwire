@@ -10,7 +10,7 @@
 //!   输出 P50 / P90 / P99 / P999 决策延迟。
 
 use std::time::Instant;
-use xdp_edge::packet::{FiveTuple, Packet, PROTO_TCP, PROTO_UDP, TCP_ACK, TCP_SYN};
+use xdp_edge::packet::{FiveTuple, PROTO_TCP, PROTO_UDP, Packet, TCP_ACK, TCP_SYN};
 use xdp_edge::simulator::{SimConfig, XdpSimulator};
 
 const TOTAL_PACKETS: u64 = 10_000_000;
@@ -44,18 +44,30 @@ fn main() {
     let mut now_ns: u64 = 1_000_000_000; // 虚拟时钟：平均 1µs 一包 = 1Mpps 到达率
 
     println!("== xdp-edge 数据面模拟 benchmark ==");
-    println!("目标包数: {} | 后端: {} | LUT: 65537", TOTAL_PACKETS, backends.len());
+    println!(
+        "目标包数: {} | 后端: {} | LUT: 65537",
+        TOTAL_PACKETS,
+        backends.len()
+    );
 
     let start = Instant::now();
     for i in 0..TOTAL_PACKETS {
         let r = rng.next();
         // 80% 复用既有流（模拟连接命中），20% 新流
-        let flow_id = if r % 100 < 80 { r % 50_000 } else { 50_000 + (i % 200_000) };
+        let flow_id = if r % 100 < 80 {
+            r % 50_000
+        } else {
+            50_000 + (i % 200_000)
+        };
         // 20% 攻击流量：前 4 个源发 SYN（走 SYN flood 检测），
         // 后 4 个源发 ACK 洪水（走令牌桶限速 DROP）
         let (src_ip, flags) = if i % 10 < 2 {
             let atk = 0x0bad_0000 + (i % 8) as u32;
-            if i % 8 < 4 { (atk, TCP_SYN) } else { (atk, TCP_ACK) }
+            if i % 8 < 4 {
+                (atk, TCP_SYN)
+            } else {
+                (atk, TCP_ACK)
+            }
         } else {
             (0xc000_0000 + (flow_id % 40_000) as u32, TCP_ACK)
         };
@@ -85,19 +97,32 @@ fn main() {
     let pps = TOTAL_PACKETS as f64 / wall.as_secs_f64();
     let s = &sim.stats;
     println!("\n-- 吞吐 --");
-    println!("总耗时: {:.2}s | 吞吐: {:.2} M pps（单线程软件路径）", wall.as_secs_f64(), pps / 1e6);
+    println!(
+        "总耗时: {:.2}s | 吞吐: {:.2} M pps（单线程软件路径）",
+        wall.as_secs_f64(),
+        pps / 1e6
+    );
     println!("\n-- 决策分布 --");
     println!(
         "转发: {} (命中 {} / 新建 {}) | 限速丢弃: {} | SYN丢弃: {}",
         s.forwarded, s.conn_hits, s.conn_misses, s.dropped_rate, s.dropped_synflood
     );
-    println!("连接表: {} 条 | LRU 淘汰: {}", sim.conntrack_len(), sim.conntrack_evictions());
+    println!(
+        "连接表: {} 条 | LRU 淘汰: {}",
+        sim.conntrack_len(),
+        sim.conntrack_evictions()
+    );
 
     lat_samples.sort_unstable();
     let pct = |p: f64| lat_samples[(p * (lat_samples.len() - 1) as f64) as usize];
     println!("\n-- 决策延迟（{} 次采样） --", lat_samples.len());
-    println!("P50: {}ns | P90: {}ns | P99: {}ns | P99.9: {}ns",
-        pct(0.50), pct(0.90), pct(0.99), pct(0.999));
+    println!(
+        "P50: {}ns | P90: {}ns | P99: {}ns | P99.9: {}ns",
+        pct(0.50),
+        pct(0.90),
+        pct(0.99),
+        pct(0.999)
+    );
 
     // 验收参照：Katran 单核 5.2 Mpps（内核 XDP）。纯用户态 Rust 单线程
     // 达到 1M+ pps 即证明每包逻辑成本在微秒级以内，架构可行。

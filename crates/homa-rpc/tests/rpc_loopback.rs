@@ -1,7 +1,7 @@
 //! RPC 层端到端测试（loopback）：echo、并发、超时重传与幂等去重。
 
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use homa_rpc::rpc::{RpcClient, RpcServer};
@@ -72,7 +72,11 @@ fn 超时重传至少一次且服务端去重() {
 
     let resp = client.call(server.addr(), b"slow").unwrap();
     assert_eq!(resp, b"slow");
-    assert_eq!(calls.load(Ordering::SeqCst), 1, "幂等去重：重试不应导致 handler 重算");
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "幂等去重：重试不应导致 handler 重算"
+    );
 }
 
 #[test]

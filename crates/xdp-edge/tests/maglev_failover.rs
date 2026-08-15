@@ -4,7 +4,7 @@
 //! 只有故障后端的 ~1/N 份额被重新分配 —— 总扰动量约 1/N。
 //! 这是 Maglev 相对取模哈希（扰动 ~100%）的核心卖点。
 
-use xdp_edge::maglev::{flow_hash, Maglev};
+use xdp_edge::maglev::{Maglev, flow_hash};
 use xdp_edge::packet::{FiveTuple, PROTO_TCP};
 
 const LUT_SIZE: usize = 65537; // 与 Katran 默认一致的大质数
@@ -33,7 +33,9 @@ fn backend_failure_disruption_within_theory() {
     mg.rebuild(&all);
 
     // 记录故障前的选路结果
-    let before: Vec<u32> = (0..N_FLOWS).map(|i| mg.lookup(flow_hash(&flow(i)))).collect();
+    let before: Vec<u32> = (0..N_FLOWS)
+        .map(|i| mg.lookup(flow_hash(&flow(i))))
+        .collect();
 
     // 摘除 backend[3]，模拟健康检查下线
     let failed = all[3];
@@ -80,7 +82,9 @@ fn scale_out_disruption_bounded() {
 
     let mut mg = Maglev::new(LUT_SIZE);
     mg.rebuild(&before8);
-    let before: Vec<u32> = (0..N_FLOWS).map(|i| mg.lookup(flow_hash(&flow(i)))).collect();
+    let before: Vec<u32> = (0..N_FLOWS)
+        .map(|i| mg.lookup(flow_hash(&flow(i))))
+        .collect();
     mg.rebuild(&after9);
 
     let moved = (0..N_FLOWS as usize)

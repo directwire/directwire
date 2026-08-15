@@ -114,12 +114,9 @@ impl Hub {
     /// 查询轨道最新 group id（用于重连续传）。
     pub fn latest_group_id(&self, track: &TrackId) -> Option<u64> {
         let inner = self.inner.read().expect("hub 锁中毒");
-        inner.get(track).and_then(|s| {
-            s.read()
-                .expect("hub 锁中毒")
-                .cache
-                .latest_group_id()
-        })
+        inner
+            .get(track)
+            .and_then(|s| s.read().expect("hub 锁中毒").cache.latest_group_id())
     }
 
     /// 当前已声明的 track 数。
@@ -143,4 +140,3 @@ impl Hub {
         )
     }
 }
-

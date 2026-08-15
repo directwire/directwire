@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 use packet::{Packet, PacketType};
 use receiver::ReceiverCore;
 use sender::SenderCore;
-use txqueue::{TxQueues, FLUSH_BUDGET};
+use txqueue::{FLUSH_BUDGET, TxQueues};
 
 /// 状态机产出的动作
 #[derive(Debug)]
@@ -29,7 +29,11 @@ pub enum Action {
     /// 向 dest 发一个 UDP 数据报
     Send { dest: SocketAddr, bytes: Vec<u8> },
     /// 一条消息重组完成，交付给上层
-    Deliver { src: SocketAddr, msg_id: u64, data: Vec<u8> },
+    Deliver {
+        src: SocketAddr,
+        msg_id: u64,
+        data: Vec<u8>,
+    },
 }
 
 /// 传输层参数（对标 Homa 默认值的可调版本）
@@ -113,7 +117,12 @@ impl Transport {
         let s2 = socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None)?;
         s2.set_recv_buffer_size(cfg.socket_buf)?;
         s2.set_send_buffer_size(cfg.socket_buf)?;
-        s2.bind(&addr.parse::<SocketAddr>().map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?.into())?;
+        s2.bind(
+            &addr
+                .parse::<SocketAddr>()
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?
+                .into(),
+        )?;
         let socket: UdpSocket = s2.into();
         // IO 线程需要周期性 tick（RESEND / 重发 GRANT / 发送端探针），给读设短超时
         socket.set_read_timeout(Some(Duration::from_millis(5)))?;
@@ -137,7 +146,10 @@ impl Transport {
             .name("homa-io".into())
             .spawn(move || io_loop(io_inner))?;
 
-        Ok(Self { inner, io_thread: Some(io_thread) })
+        Ok(Self {
+            inner,
+            io_thread: Some(io_thread),
+        })
     }
 
     /// 本地绑定地址
@@ -179,7 +191,10 @@ impl Transport {
             let remain = deadline.saturating_duration_since(Instant::now());
             if remain.is_zero() {
                 st.sender.finish(dest, msg_id);
-                return Err(io::Error::new(io::ErrorKind::TimedOut, "homa send_to timeout"));
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "homa send_to timeout",
+                ));
             }
             let (guard, _) = self.inner.cv.wait_timeout(st, remain).unwrap();
             st = guard;
@@ -196,7 +211,10 @@ impl Transport {
             }
             let remain = deadline.saturating_duration_since(Instant::now());
             if remain.is_zero() {
-                return Err(io::Error::new(io::ErrorKind::WouldBlock, "homa recv timeout"));
+                return Err(io::Error::new(
+                    io::ErrorKind::WouldBlock,
+                    "homa recv timeout",
+                ));
             }
             let (guard, _) = self.inner.cv.wait_timeout(st, remain).unwrap();
             st = guard;
@@ -264,12 +282,17 @@ fn io_loop(inner: Arc<Inner>) {
     while !inner.shutdown.load(Ordering::Relaxed) {
         match inner.socket.recv_from(&mut buf) {
             Ok((n, src)) => {
-                let Ok((pkt, payload)) = Packet::decode(&buf[..n]) else { continue };
+                let Ok((pkt, payload)) = Packet::decode(&buf[..n]) else {
+                    continue;
+                };
                 let now = Instant::now();
                 let mut st = inner.state.lock().unwrap();
                 let mut actions = Vec::new();
                 match pkt.typ {
-                    PacketType::Data => st.receiver.handle_data(src, &pkt, payload, now, &mut actions),
+                    PacketType::Data => {
+                        st.receiver
+                            .handle_data(src, &pkt, payload, now, &mut actions)
+                    }
                     PacketType::Grant => {
                         st.sender.handle_grant(src, &pkt, now, &mut actions);
                         if st.sender.is_done(src, pkt.msg_id) {
@@ -281,7 +304,9 @@ fn io_loop(inner: Arc<Inner>) {
                 }
                 drain(&inner, &mut st, actions);
             }
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock || e.kind() == io::ErrorKind::TimedOut => {}
+            Err(e)
+                if e.kind() == io::ErrorKind::WouldBlock || e.kind() == io::ErrorKind::TimedOut => {
+            }
             Err(_) => {
                 if inner.shutdown.load(Ordering::Relaxed) {
                     break;

@@ -55,8 +55,22 @@ pub struct Packet {
 }
 
 impl Packet {
-    pub fn new(typ: PacketType, priority: u8, msg_id: u64, msg_len: u32, offset: u32, length: u32) -> Self {
-        Self { typ, priority, msg_id, msg_len, offset, length }
+    pub fn new(
+        typ: PacketType,
+        priority: u8,
+        msg_id: u64,
+        msg_len: u32,
+        offset: u32,
+        length: u32,
+    ) -> Self {
+        Self {
+            typ,
+            priority,
+            msg_id,
+            msg_len,
+            offset,
+            length,
+        }
     }
 
     /// 编码包头 + 负载为一个 UDP 数据报
@@ -75,7 +89,10 @@ impl Packet {
     /// 从数据报解码包头，返回 (包头, 负载切片)
     pub fn decode(datagram: &[u8]) -> io::Result<(Packet, &[u8])> {
         if datagram.len() < HEADER_LEN {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "datagram too short for header"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "datagram too short for header",
+            ));
         }
         let typ = PacketType::from_u8(datagram[0])
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "unknown packet type"))?;
@@ -84,10 +101,20 @@ impl Packet {
         let msg_len = u32::from_le_bytes(datagram[10..14].try_into().unwrap());
         let offset = u32::from_le_bytes(datagram[14..18].try_into().unwrap());
         let length = u32::from_le_bytes(datagram[18..22].try_into().unwrap());
-        let pkt = Packet { typ, priority, msg_id, msg_len, offset, length };
+        let pkt = Packet {
+            typ,
+            priority,
+            msg_id,
+            msg_len,
+            offset,
+            length,
+        };
         let payload = &datagram[HEADER_LEN..];
         if pkt.typ == PacketType::Data && payload.len() != length as usize {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "DATA payload length mismatch"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "DATA payload length mismatch",
+            ));
         }
         Ok((pkt, payload))
     }

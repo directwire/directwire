@@ -139,7 +139,10 @@ fn 停滞超时后接收端发出恢复动作() {
     rx.tick(t1, &mut actions);
     let recovery =
         sends_of(&actions, PacketType::Grant).len() + sends_of(&actions, PacketType::Resend).len();
-    assert!(recovery >= 1, "停滞超时后接收端必须发出恢复动作（GRANT 或 RESEND）");
+    assert!(
+        recovery >= 1,
+        "停滞超时后接收端必须发出恢复动作（GRANT 或 RESEND）"
+    );
 }
 
 #[test]

@@ -223,7 +223,10 @@ impl Message {
                 payload.len()
             )));
         }
-        let mut r = Reader { buf: payload, pos: 0 };
+        let mut r = Reader {
+            buf: payload,
+            pos: 0,
+        };
         let msg = match type_code {
             T_SETUP => Message::Setup {
                 version: r.varint()?,
@@ -253,7 +256,9 @@ impl Message {
             T_UNSUBSCRIBE => Message::Unsubscribe {
                 subscribe_id: r.varint()?,
             },
-            T_GOAWAY => Message::Goaway { reason: r.string()? },
+            T_GOAWAY => Message::Goaway {
+                reason: r.string()?,
+            },
             T_GROUP_HEADER => {
                 let track_ref = match r.varint()? {
                     REF_ALIAS => TrackRef::Alias(r.varint()?),
@@ -311,10 +316,7 @@ impl Reader<'_> {
     fn bytes(&mut self) -> io::Result<Vec<u8>> {
         let len = self.varint()? as usize;
         if self.buf.len() - self.pos < len {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "载荷数据不足",
-            ));
+            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "载荷数据不足"));
         }
         let out = self.buf[self.pos..self.pos + len].to_vec();
         self.pos += len;

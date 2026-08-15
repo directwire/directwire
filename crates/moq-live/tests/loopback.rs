@@ -87,8 +87,14 @@ async fn scenario() {
     s2.await.unwrap();
     let lats = stats.lock().await;
     let (n2, first_g2) = lats[0];
-    assert!(n2 >= FRAMES_PER_GROUP as usize, "追赶订阅者至少收到一个完整 group");
-    assert!(first_g2 > 0, "追赶订阅者应从更晚的 group 切入，实际 {first_g2}");
+    assert!(
+        n2 >= FRAMES_PER_GROUP as usize,
+        "追赶订阅者至少收到一个完整 group"
+    );
+    assert!(
+        first_g2 > 0,
+        "追赶订阅者应从更晚的 group 切入，实际 {first_g2}"
+    );
     println!("sub1: n={n1} first_group={first_g1}; sub2: n={n2} first_group={first_g2}");
 
     // 6. alias 协商生效：订阅发生后 publisher 应已记录 relay 分配的 alias，
@@ -98,7 +104,10 @@ async fn scenario() {
         publisher.alias_of(&track).await.is_some(),
         "订阅发生后 publisher 应已协商出 track alias"
     );
-    println!("publisher 已协商 alias: {:?}", publisher.alias_of(&track).await);
+    println!(
+        "publisher 已协商 alias: {:?}",
+        publisher.alias_of(&track).await
+    );
 
     // 优雅收尾：留出尾帧投递窗口再断开。
     tokio::time::sleep(Duration::from_millis(300)).await;

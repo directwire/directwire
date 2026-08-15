@@ -33,7 +33,11 @@ pub struct Packet {
 
 impl Packet {
     pub fn new(tuple: FiveTuple, tcp_flags: u8, len: u32) -> Self {
-        Self { tuple, tcp_flags, len }
+        Self {
+            tuple,
+            tcp_flags,
+            len,
+        }
     }
 
     pub fn is_syn(&self) -> bool {

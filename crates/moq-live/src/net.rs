@@ -95,7 +95,7 @@ impl FrameReader {
                     return Err(io::Error::new(
                         io::ErrorKind::UnexpectedEof,
                         "流在帧中途关闭",
-                    ))
+                    ));
                 }
                 Some(n) => self.buf.extend_from_slice(&self.chunk[..n]),
             }

@@ -1,7 +1,7 @@
 //! 帧编解码往返测试：varint 边界、全消息类型 roundtrip、畸形帧拒绝。
 
 use bytes::Bytes;
-use moq_live::message::{Message, Role, StartMode, TrackRef, PROTO_VERSION};
+use moq_live::message::{Message, PROTO_VERSION, Role, StartMode, TrackRef};
 use moq_live::track::{Object, TrackId};
 use moq_live::varint;
 

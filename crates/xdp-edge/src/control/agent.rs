@@ -39,10 +39,10 @@ pub struct AgentConfig {
 impl Default for AgentConfig {
     fn default() -> Self {
         Self {
-            probe_interval_ns: 1_000_000_000,      // 1s 探活
-            fall: 3,                                // 3s 内摘除故障后端（Q2 出口标准）
+            probe_interval_ns: 1_000_000_000, // 1s 探活
+            fall: 3,                          // 3s 内摘除故障后端（Q2 出口标准）
             rise: 2,
-            sweep_interval_ns: 30_000_000_000,      // 30s 清扫
+            sweep_interval_ns: 30_000_000_000, // 30s 清扫
             lut_size: 65537,
         }
     }
@@ -127,7 +127,10 @@ mod tests {
 
     #[test]
     fn failure_triggers_lut_republish() {
-        let cfg = AgentConfig { lut_size: 4099, ..Default::default() };
+        let cfg = AgentConfig {
+            lut_size: 4099,
+            ..Default::default()
+        };
         let backends = [10u32, 20, 30, 40];
         let mut agent = ControlAgent::new(&cfg, &backends);
         let mut ct = ConnTrack::new(1024, 120 * S);
@@ -170,7 +173,10 @@ mod tests {
 
     #[test]
     fn flap_does_not_republish() {
-        let cfg = AgentConfig { lut_size: 4099, ..Default::default() };
+        let cfg = AgentConfig {
+            lut_size: 4099,
+            ..Default::default()
+        };
         let mut agent = ControlAgent::new(&cfg, &[10, 20]);
         let mut ct = ConnTrack::new(64, S);
         bring_up(&mut agent, 10, 0);

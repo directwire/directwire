@@ -11,7 +11,7 @@
 //! 在网卡驱动层运行、无需系统调用的语义保持一致。
 
 use crate::conntrack::{ConnEntry, ConnTrack};
-use crate::maglev::{flow_hash, Maglev};
+use crate::maglev::{Maglev, flow_hash};
 use crate::packet::{Action, Packet};
 use crate::synflood::SynFloodGuard;
 use crate::token_bucket::RateLimiter;
@@ -107,7 +107,9 @@ impl XdpSimulator {
 
         // 2. SYN flood 检测（仅 TCP）
         if pkt.tuple.protocol == crate::packet::PROTO_TCP
-            && self.syn_guard.observe(src, pkt.is_syn(), pkt.is_ack(), now_ns)
+            && self
+                .syn_guard
+                .observe(src, pkt.is_syn(), pkt.is_ack(), now_ns)
         {
             self.stats.dropped_synflood += 1;
             return Action::Drop;
@@ -123,7 +125,13 @@ impl XdpSimulator {
 
         // 4. Maglev 选后端（IPIP 封装的内层目的地）
         let backend = self.maglev.lookup(flow_hash(&pkt.tuple));
-        self.conntrack.insert(pkt.tuple, ConnEntry { backend_ip: backend, last_seen_ns: now_ns });
+        self.conntrack.insert(
+            pkt.tuple,
+            ConnEntry {
+                backend_ip: backend,
+                last_seen_ns: now_ns,
+            },
+        );
 
         // 5. IPIP 封装 + XDP_TX
         self.stats.forwarded += 1;

@@ -22,9 +22,7 @@ use tokio::sync::{Mutex, Notify};
 use crate::control::{ControlReceiver, ControlSender};
 use crate::dropq::{PriorityDropQueue, PushOutcome};
 use crate::hub::Hub;
-use crate::message::{
-    ERR_NAMESPACE_NOT_FOUND, Message, PROTO_VERSION, Role, StartMode, TrackRef,
-};
+use crate::message::{ERR_NAMESPACE_NOT_FOUND, Message, PROTO_VERSION, Role, StartMode, TrackRef};
 use crate::net::{self, FrameReader};
 use crate::track::{Object, TrackId};
 
@@ -143,11 +141,13 @@ struct ConnCtx {
 }
 
 /// 建立控制通道：启用 GM-PQ 时先跑混合握手（红线 1：client_tag 绑定对端地址）。
-async fn open_control(conn: &Connection, ctx: &ConnCtx) -> io::Result<(ControlSender, ControlReceiver)> {
-    let (send, recv) = conn
-        .accept_bi()
-        .await
-        .map_err(|e| io::Error::new(io::ErrorKind::ConnectionAborted, format!("接受流失败: {e}")))?;
+async fn open_control(
+    conn: &Connection,
+    ctx: &ConnCtx,
+) -> io::Result<(ControlSender, ControlReceiver)> {
+    let (send, recv) = conn.accept_bi().await.map_err(|e| {
+        io::Error::new(io::ErrorKind::ConnectionAborted, format!("接受流失败: {e}"))
+    })?;
     #[cfg(feature = "gm-pq")]
     if let Some(id) = &ctx.gmpq {
         let tag = conn.remote_address().to_string().into_bytes();
@@ -190,7 +190,7 @@ async fn handle_connection(conn: Connection, ctx: ConnCtx) -> io::Result<()> {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("首条消息必须是 SETUP，实际: {other:?}"),
-            ))
+            ));
         }
     };
     control
@@ -199,7 +199,11 @@ async fn handle_connection(conn: Connection, ctx: ConnCtx) -> io::Result<()> {
             role: Role::Both,
         })
         .await?;
-    eprintln!("[relay] 新连接 {:?}，角色 {:?}", conn.remote_address(), peer_role);
+    eprintln!(
+        "[relay] 新连接 {:?}，角色 {:?}",
+        conn.remote_address(),
+        peer_role
+    );
 
     // 注册连接（GOAWAY 用）。
     let stable_id = conn.stable_id();
@@ -379,7 +383,7 @@ async fn handle_group_stream(
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("group 流首帧必须是 GROUP_HEADER，实际: {other:?}"),
-            ))
+            ));
         }
     };
     // 该 group 的 OBJECT 序列：回填 group_id 后入 hub。
@@ -418,7 +422,9 @@ async fn resolve_track_ref(
             pubs.iter()
                 .find(|(_, reg)| reg.alias == Some(a))
                 .map(|(t, _)| t.clone())
-                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, format!("未知 track alias: {a}")))
+                .ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::InvalidData, format!("未知 track alias: {a}"))
+                })
         }
     }
 }
@@ -563,11 +569,7 @@ fn spawn_forwarder(
 }
 
 /// 向订阅端开一条 group 数据流并写首帧。
-async fn open_group_stream(
-    conn: &Connection,
-    alias: u64,
-    group_id: u64,
-) -> io::Result<SendStream> {
+async fn open_group_stream(conn: &Connection, alias: u64, group_id: u64) -> io::Result<SendStream> {
     let mut s = conn
         .open_uni()
         .await
@@ -585,8 +587,11 @@ async fn open_group_stream(
 
 /// 向 group 数据流写入一个 object。
 async fn write_object(s: &mut SendStream, obj: &Object) -> io::Result<()> {
-    net::write_frame(s, &Message::Object {
-        object: obj.clone(),
-    })
+    net::write_frame(
+        s,
+        &Message::Object {
+            object: obj.clone(),
+        },
+    )
     .await
 }

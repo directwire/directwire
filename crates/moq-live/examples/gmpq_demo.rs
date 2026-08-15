@@ -35,8 +35,14 @@ async fn run() {
     let sub_sk_b = sub_sk.clone(); // B 复用同一身份（演示恢复语义）
 
     // relay 锚：钉扎 publisher/subscriber 公钥（生产换 PinFileAnchor::from_file）。
-    let relay_anchor = PinFileAnchor::from_keys([("publisher", &*pub_pk), ("subscriber", &*sub_pk)]);
-    let server_id = Arc::new(ServerIdentity::new(relay_sk, relay_pk.clone(), relay_anchor, 3600));
+    let relay_anchor =
+        PinFileAnchor::from_keys([("publisher", &*pub_pk), ("subscriber", &*sub_pk)]);
+    let server_id = Arc::new(ServerIdentity::new(
+        relay_sk,
+        relay_pk.clone(),
+        relay_anchor,
+        3600,
+    ));
     // 客户端锚：钉扎 relay 公钥。
     let pub_id = Arc::new(ClientIdentity::new(
         pub_sk,
@@ -123,7 +129,8 @@ async fn run() {
             for g in 0..GROUPS {
                 let mut gw = publisher.begin_group(&track, g).await.unwrap();
                 for i in 0..FRAMES_PER_GROUP {
-                    let o = Object::new(g, i, if i == 0 { 0 } else { 128 }, now_ms(), frame.clone());
+                    let o =
+                        Object::new(g, i, if i == 0 { 0 } else { 128 }, now_ms(), frame.clone());
                     gw.write_object(&o).await.unwrap();
                     tokio::time::sleep(Duration::from_millis(1000 / 25)).await;
                 }
@@ -186,7 +193,14 @@ fn summarize(lat: &[u64]) -> String {
     let max = sorted[sorted.len() - 1];
     let p95 = sorted[((sorted.len() - 1) * 95) / 100];
     let avg = sorted.iter().sum::<u64>() / sorted.len() as u64;
-    format!("n={} min={}ms avg={}ms p95={}ms max={}ms", sorted.len(), min, avg, p95, max)
+    format!(
+        "n={} min={}ms avg={}ms p95={}ms max={}ms",
+        sorted.len(),
+        min,
+        avg,
+        p95,
+        max
+    )
 }
 
 /// 自签名证书（QUIC TLS 钉扎用，与 GM-PQ 会话层正交）。

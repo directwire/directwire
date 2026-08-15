@@ -33,8 +33,14 @@ async fn setup() -> Fixture {
     let (pub_sk, pub_pk) = gmpq::generate_keypair().unwrap();
     let (sub_sk, sub_pk) = gmpq::generate_keypair().unwrap();
 
-    let relay_anchor = PinFileAnchor::from_keys([("publisher", &*pub_pk), ("subscriber", &*sub_pk)]);
-    let server_id = Arc::new(ServerIdentity::new(relay_sk, relay_pk.clone(), relay_anchor, 3600));
+    let relay_anchor =
+        PinFileAnchor::from_keys([("publisher", &*pub_pk), ("subscriber", &*sub_pk)]);
+    let server_id = Arc::new(ServerIdentity::new(
+        relay_sk,
+        relay_pk.clone(),
+        relay_anchor,
+        3600,
+    ));
     let pub_id = Arc::new(ClientIdentity::new(
         pub_sk,
         pub_pk,
@@ -72,15 +78,27 @@ async fn full_pipeline_over_gmpq_session() {
         let track = TrackId::new("test/gmpq", "video");
 
         let pub_ep = net::client_endpoint_pinned(f.pinned.clone()).unwrap();
-        let (publisher, info) = Publisher::connect_gmpq(&pub_ep, f.addr, f.pub_id).await.unwrap();
+        let (publisher, info) = Publisher::connect_gmpq(&pub_ep, f.addr, f.pub_id)
+            .await
+            .unwrap();
         assert!(!info.resumed, "首次应为完整握手");
-        println!("[test] publisher 握手: {} {:?}", info.mode_label(), info.elapsed);
+        println!(
+            "[test] publisher 握手: {} {:?}",
+            info.mode_label(),
+            info.elapsed
+        );
         publisher.announce(&track.namespace).await.unwrap();
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         let sub_ep = net::client_endpoint_pinned(f.pinned.clone()).unwrap();
-        let (sub, sinfo) = Subscriber::connect_gmpq(&sub_ep, f.addr, f.sub_id).await.unwrap();
-        println!("[test] subscriber 握手: {} {:?}", sinfo.mode_label(), sinfo.elapsed);
+        let (sub, sinfo) = Subscriber::connect_gmpq(&sub_ep, f.addr, f.sub_id)
+            .await
+            .unwrap();
+        println!(
+            "[test] subscriber 握手: {} {:?}",
+            sinfo.mode_label(),
+            sinfo.elapsed
+        );
         let mut rx = sub
             .subscribe(1, &track, StartMode::LatestGroup, 0)
             .await

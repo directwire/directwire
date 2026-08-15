@@ -50,7 +50,12 @@ async fn handshake(
         .connect(addr, "localhost")
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("connect 失败: {e}")))?
         .await
-        .map_err(|e| io::Error::new(io::ErrorKind::ConnectionRefused, format!("QUIC 握手失败: {e}")))?;
+        .map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::ConnectionRefused,
+                format!("QUIC 握手失败: {e}"),
+            )
+        })?;
     let (send, recv) = conn
         .open_bi()
         .await
@@ -60,7 +65,11 @@ async fn handshake(
     let (sender, receiver, gmpq_info) = match gmpq {
         Some(id) => {
             let (s, r, info) = crate::gmpq::client_handshake(send, recv, &id).await?;
-            (ControlSender::Secure(s), ControlReceiver::Secure(r), Some(info))
+            (
+                ControlSender::Secure(s),
+                ControlReceiver::Secure(r),
+                Some(info),
+            )
         }
         None => (ControlSender::raw(send), ControlReceiver::raw(recv), None),
     };
@@ -212,13 +221,21 @@ impl Publisher {
             Some(a) => TrackRef::Alias(a),
             None => TrackRef::Full(track.clone()),
         };
-        let mut s = self
-            .conn
-            .open_uni()
-            .await
-            .map_err(|e| io::Error::new(io::ErrorKind::BrokenPipe, format!("开 group 流失败: {e}")))?;
-        net::write_frame(&mut s, &Message::GroupHeader { track_ref, group_id }).await?;
-        Ok(GroupWriter { stream: s, group_id })
+        let mut s = self.conn.open_uni().await.map_err(|e| {
+            io::Error::new(io::ErrorKind::BrokenPipe, format!("开 group 流失败: {e}"))
+        })?;
+        net::write_frame(
+            &mut s,
+            &Message::GroupHeader {
+                track_ref,
+                group_id,
+            },
+        )
+        .await?;
+        Ok(GroupWriter {
+            stream: s,
+            group_id,
+        })
     }
 
     /// 优雅收尾：finish 所有流后等待投递（调用方在此之前应完成所有 group）。
@@ -237,9 +254,12 @@ impl GroupWriter {
     /// 写入一个 object（group_id 自动取自流头）。
     pub async fn write_object(&mut self, obj: &Object) -> io::Result<()> {
         debug_assert_eq!(obj.group_id, self.group_id, "object 必须属于本 group");
-        net::write_frame(&mut self.stream, &Message::Object {
-            object: obj.clone(),
-        })
+        net::write_frame(
+            &mut self.stream,
+            &Message::Object {
+                object: obj.clone(),
+            },
+        )
         .await
     }
 
@@ -416,7 +436,9 @@ impl Subscriber {
     /// 取消订阅（UNSUBSCRIBE）。
     pub async fn unsubscribe(&self, subscribe_id: u64) -> io::Result<()> {
         self.routes.lock().await.remove(&subscribe_id);
-        self.control.send(&Message::Unsubscribe { subscribe_id }).await
+        self.control
+            .send(&Message::Unsubscribe { subscribe_id })
+            .await
     }
 
     /// 控制事件通道（GOAWAY 等）。
@@ -440,7 +462,7 @@ async fn read_group_stream(
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("group 流首帧必须是 GROUP_HEADER(alias)，实际: {other:?}"),
-            ))
+            ));
         }
     };
     let tx = routes.lock().await.get(&alias).cloned();

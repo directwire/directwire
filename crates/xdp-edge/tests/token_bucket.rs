@@ -3,7 +3,7 @@
 //! 精度验收：以固定速率持续打流，窗口内实际放行数与理论值
 //! rate * t + burst 的偏差应在 2% 以内。
 
-use xdp_edge::packet::{Action, FiveTuple, Packet, PROTO_TCP, TCP_ACK};
+use xdp_edge::packet::{Action, FiveTuple, PROTO_TCP, Packet, TCP_ACK};
 use xdp_edge::simulator::{SimConfig, XdpSimulator};
 use xdp_edge::token_bucket::{RateLimiter, TokenBucket};
 
@@ -23,7 +23,13 @@ fn sustained_rate_accuracy() {
     // 理论：1000 pps * 10s + 10 burst ≈ 10010
     let expected = 1000.0 * (total as f64 * step_ns as f64 / 1e9) + 10.0;
     let err = (allowed as f64 - expected).abs() / expected;
-    assert!(err < 0.02, "限速精度误差 {:.2}% 超 2%（放行 {} / 理论 {:.0}）", err * 100.0, allowed, expected);
+    assert!(
+        err < 0.02,
+        "限速精度误差 {:.2}% 超 2%（放行 {} / 理论 {:.0}）",
+        err * 100.0,
+        allowed,
+        expected
+    );
 }
 
 #[test]
@@ -55,7 +61,11 @@ fn per_source_isolation() {
 #[test]
 fn simulator_drop_path_under_flood() {
     // 端到端：模拟器内攻击源超速打流应主要走 XDP_DROP
-    let cfg = SimConfig { rate_per_sec: 1_000.0, rate_burst: 50.0, ..Default::default() };
+    let cfg = SimConfig {
+        rate_per_sec: 1_000.0,
+        rate_burst: 50.0,
+        ..Default::default()
+    };
     let backends = [0x0a00_0001u32, 0x0a00_0002, 0x0a00_0003];
     let mut sim = XdpSimulator::new(&cfg, &backends, 4099);
 
@@ -81,5 +91,9 @@ fn simulator_drop_path_under_flood() {
         }
     }
     let drop_ratio = dropped as f64 / (dropped + forwarded) as f64;
-    assert!(drop_ratio > 0.95, "洪水下丢包率 {:.2}% 过低", drop_ratio * 100.0);
+    assert!(
+        drop_ratio > 0.95,
+        "洪水下丢包率 {:.2}% 过低",
+        drop_ratio * 100.0
+    );
 }

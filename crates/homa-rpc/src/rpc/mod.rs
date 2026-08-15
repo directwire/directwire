@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{channel, Sender};
+use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -35,7 +35,10 @@ fn decode_frame(frame: &[u8]) -> Option<(u64, &[u8])> {
     if frame.len() < RPC_HDR {
         return None;
     }
-    Some((u64::from_le_bytes(frame[..8].try_into().unwrap()), &frame[RPC_HDR..]))
+    Some((
+        u64::from_le_bytes(frame[..8].try_into().unwrap()),
+        &frame[RPC_HDR..],
+    ))
 }
 
 /// RPC 服务端：收请求 → 调 handler → 回响应；带幂等去重缓存。
@@ -66,8 +69,12 @@ impl RpcServer {
                 let dedup: Arc<Mutex<HashMap<(SocketAddr, u64), Option<Vec<u8>>>>> =
                     Arc::new(Mutex::new(HashMap::new()));
                 while !sd.load(Ordering::Relaxed) {
-                    let Ok((src, frame)) = transport.recv(Duration::from_millis(50)) else { continue };
-                    let Some((rpc_id, body)) = decode_frame(&frame) else { continue };
+                    let Ok((src, frame)) = transport.recv(Duration::from_millis(50)) else {
+                        continue;
+                    };
+                    let Some((rpc_id, body)) = decode_frame(&frame) else {
+                        continue;
+                    };
                     {
                         let mut map = dedup.lock().unwrap();
                         match map.get(&(src, rpc_id)) {
@@ -100,7 +107,11 @@ impl RpcServer {
                     });
                 }
             })?;
-        Ok(Self { addr, shutdown, thread: Some(thread) })
+        Ok(Self {
+            addr,
+            shutdown,
+            thread: Some(thread),
+        })
     }
 
     pub fn addr(&self) -> SocketAddr {
@@ -133,7 +144,8 @@ pub struct RpcClient {
 impl RpcClient {
     pub fn new(bind: &str) -> io::Result<Self> {
         let transport = Arc::new(Transport::bind(bind, Default::default())?);
-        let waiters: Arc<Mutex<HashMap<u64, Sender<Vec<u8>>>>> = Arc::new(Mutex::new(HashMap::new()));
+        let waiters: Arc<Mutex<HashMap<u64, Sender<Vec<u8>>>>> =
+            Arc::new(Mutex::new(HashMap::new()));
         let shutdown = Arc::new(AtomicBool::new(false));
 
         let w = Arc::clone(&waiters);
@@ -143,8 +155,12 @@ impl RpcClient {
             .name("homa-rpc-dispatch".into())
             .spawn(move || {
                 while !sd.load(Ordering::Relaxed) {
-                    let Ok((_src, frame)) = tp.recv(Duration::from_millis(50)) else { continue };
-                    let Some((rpc_id, body)) = decode_frame(&frame) else { continue };
+                    let Ok((_src, frame)) = tp.recv(Duration::from_millis(50)) else {
+                        continue;
+                    };
+                    let Some((rpc_id, body)) = decode_frame(&frame) else {
+                        continue;
+                    };
                     let tx = w.lock().unwrap().remove(&rpc_id);
                     if let Some(tx) = tx {
                         let _ = tx.send(body.to_vec());
@@ -190,7 +206,10 @@ impl RpcClient {
                 }
             }
         }
-        Err(io::Error::new(io::ErrorKind::TimedOut, format!("rpc {rpc_id} timeout after {max_attempts} attempts")))
+        Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            format!("rpc {rpc_id} timeout after {max_attempts} attempts"),
+        ))
     }
 
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
@@ -244,7 +263,11 @@ pub mod tcp_baseline {
                     }
                 }
             });
-            Ok(Self { addr, shutdown, thread: Some(thread) })
+            Ok(Self {
+                addr,
+                shutdown,
+                thread: Some(thread),
+            })
         }
     }
 

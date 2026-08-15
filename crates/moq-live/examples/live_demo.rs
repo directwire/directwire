@@ -82,7 +82,9 @@ async fn run() {
 
     // ---- 4. 推流 ----
     tokio::time::sleep(Duration::from_millis(300)).await; // 等 A/B 订阅就绪
-    run_publisher(publisher, track).await.expect("publisher 失败");
+    run_publisher(publisher, track)
+        .await
+        .expect("publisher 失败");
 
     // ---- 5. 等订阅端收尾并汇总 ----
     while subs.join_next().await.is_some() {}
@@ -120,7 +122,10 @@ async fn run_publisher(publisher: Publisher, track: TrackId) -> std::io::Result<
             tokio::time::sleep(frame_interval).await;
         }
         gw.finish();
-        println!("publisher: group {group} 推完（帧头: {}）", if alias_used { "alias" } else { "full track" });
+        println!(
+            "publisher: group {group} 推完（帧头: {}）",
+            if alias_used { "alias" } else { "full track" }
+        );
     }
     // 留出尾帧投递窗口再关闭连接。
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -199,8 +204,7 @@ fn summarize(lat: &[u64]) -> String {
 /// 生成自签名证书（演示部署：客户端钉扎该证书）。
 fn self_signed_cert() -> (Vec<CertificateDer<'static>>, PrivateKeyDer<'static>) {
     let rcgen::CertifiedKey { cert, key_pair } =
-        rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
-            .expect("生成自签名证书");
+        rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).expect("生成自签名证书");
     let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key_pair.serialize_der()));
     (vec![cert.der().clone()], key)
 }

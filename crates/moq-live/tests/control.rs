@@ -40,7 +40,10 @@ async fn subscribe_unknown_namespace_gets_error() {
         let ep = net::client_endpoint_pinned(pinned).unwrap();
         let sub = Subscriber::connect(&ep, addr).await.unwrap();
         let track = TrackId::new("no/such-ns", "video");
-        let result = sub.subscribe(1, &track, StartMode::LatestGroup, 0).await.unwrap();
+        let result = sub
+            .subscribe(1, &track, StartMode::LatestGroup, 0)
+            .await
+            .unwrap();
         let reason = result.expect_err("应收到 SUBSCRIBE_ERROR");
         println!("SUBSCRIBE_ERROR: {reason}");
         assert!(reason.contains("未发布"));

@@ -45,7 +45,10 @@ impl ControlSender {
 /// 控制通道接收半。
 pub enum ControlReceiver {
     /// 裸 QUIC 流（默认）。
-    Raw { recv: RecvStream, reader: FrameReader },
+    Raw {
+        recv: RecvStream,
+        reader: FrameReader,
+    },
     /// GM-PQ 加密会话（feature gm-pq）。
     #[cfg(feature = "gm-pq")]
     Secure(crate::gmpq::GmPqReceiver),

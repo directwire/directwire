@@ -49,7 +49,12 @@ impl SynFloodGuard {
         // 窗口滑动：超时则清零重计
         if !w.init || now_ns.saturating_sub(w.start_ns) >= self.window_ns {
             // 老窗口已判定过攻击的不重复计数
-            *w = Window { syn: 0, ack: 0, start_ns: now_ns, init: true };
+            *w = Window {
+                syn: 0,
+                ack: 0,
+                start_ns: now_ns,
+                init: true,
+            };
         }
         if is_syn {
             w.syn += 1;

@@ -34,46 +34,102 @@ pub fn render_metrics(
     lut_version: u64,
 ) -> String {
     let mut out = String::with_capacity(1024);
-    let pps = if window_secs > 0.0 { window_packets as f64 / window_secs } else { 0.0 };
+    let pps = if window_secs > 0.0 {
+        window_packets as f64 / window_secs
+    } else {
+        0.0
+    };
     let lookups = stats.conn_hits + stats.conn_misses;
-    let hit_ratio = if lookups > 0 { stats.conn_hits as f64 / lookups as f64 } else { 0.0 };
+    let hit_ratio = if lookups > 0 {
+        stats.conn_hits as f64 / lookups as f64
+    } else {
+        0.0
+    };
 
     // counter：按动作的包计数
-    let _ = writeln!(out, "# HELP xdp_edge_packets_total Packets processed by XDP pipeline, by action.");
+    let _ = writeln!(
+        out,
+        "# HELP xdp_edge_packets_total Packets processed by XDP pipeline, by action."
+    );
     let _ = writeln!(out, "# TYPE xdp_edge_packets_total counter");
-    let _ = writeln!(out, "xdp_edge_packets_total{{action=\"forward\"}} {}", stats.forwarded);
-    let _ = writeln!(out, "xdp_edge_packets_total{{action=\"drop_ratelimit\"}} {}", stats.dropped_rate);
-    let _ = writeln!(out, "xdp_edge_packets_total{{action=\"drop_synflood\"}} {}", stats.dropped_synflood);
-    let _ = writeln!(out, "xdp_edge_packets_total{{action=\"pass\"}} {}", stats.passed);
+    let _ = writeln!(
+        out,
+        "xdp_edge_packets_total{{action=\"forward\"}} {}",
+        stats.forwarded
+    );
+    let _ = writeln!(
+        out,
+        "xdp_edge_packets_total{{action=\"drop_ratelimit\"}} {}",
+        stats.dropped_rate
+    );
+    let _ = writeln!(
+        out,
+        "xdp_edge_packets_total{{action=\"drop_synflood\"}} {}",
+        stats.dropped_synflood
+    );
+    let _ = writeln!(
+        out,
+        "xdp_edge_packets_total{{action=\"pass\"}} {}",
+        stats.passed
+    );
 
     // counter：连接跟踪查找
-    let _ = writeln!(out, "# HELP xdp_edge_conntrack_lookups_total Conntrack lookups, by result.");
+    let _ = writeln!(
+        out,
+        "# HELP xdp_edge_conntrack_lookups_total Conntrack lookups, by result."
+    );
     let _ = writeln!(out, "# TYPE xdp_edge_conntrack_lookups_total counter");
-    let _ = writeln!(out, "xdp_edge_conntrack_lookups_total{{result=\"hit\"}} {}", stats.conn_hits);
-    let _ = writeln!(out, "xdp_edge_conntrack_lookups_total{{result=\"miss\"}} {}", stats.conn_misses);
+    let _ = writeln!(
+        out,
+        "xdp_edge_conntrack_lookups_total{{result=\"hit\"}} {}",
+        stats.conn_hits
+    );
+    let _ = writeln!(
+        out,
+        "xdp_edge_conntrack_lookups_total{{result=\"miss\"}} {}",
+        stats.conn_misses
+    );
 
     // gauge：命中率 / 规模 / 吞吐 / 控制面状态
-    let _ = writeln!(out, "# HELP xdp_edge_conntrack_hit_ratio Conntrack hit ratio (0-1).");
+    let _ = writeln!(
+        out,
+        "# HELP xdp_edge_conntrack_hit_ratio Conntrack hit ratio (0-1)."
+    );
     let _ = writeln!(out, "# TYPE xdp_edge_conntrack_hit_ratio gauge");
     let _ = writeln!(out, "xdp_edge_conntrack_hit_ratio {:.6}", hit_ratio);
 
-    let _ = writeln!(out, "# HELP xdp_edge_conntrack_entries Current conntrack entries.");
+    let _ = writeln!(
+        out,
+        "# HELP xdp_edge_conntrack_entries Current conntrack entries."
+    );
     let _ = writeln!(out, "# TYPE xdp_edge_conntrack_entries gauge");
     let _ = writeln!(out, "xdp_edge_conntrack_entries {}", conntrack_entries);
 
-    let _ = writeln!(out, "# HELP xdp_edge_conntrack_evictions_total LRU evictions from conntrack.");
+    let _ = writeln!(
+        out,
+        "# HELP xdp_edge_conntrack_evictions_total LRU evictions from conntrack."
+    );
     let _ = writeln!(out, "# TYPE xdp_edge_conntrack_evictions_total counter");
     let _ = writeln!(out, "xdp_edge_conntrack_evictions_total {}", evictions);
 
-    let _ = writeln!(out, "# HELP xdp_edge_pps Packet throughput in the sampling window.");
+    let _ = writeln!(
+        out,
+        "# HELP xdp_edge_pps Packet throughput in the sampling window."
+    );
     let _ = writeln!(out, "# TYPE xdp_edge_pps gauge");
     let _ = writeln!(out, "xdp_edge_pps {:.1}", pps);
 
-    let _ = writeln!(out, "# HELP xdp_edge_backends_alive Backends currently in the Maglev set.");
+    let _ = writeln!(
+        out,
+        "# HELP xdp_edge_backends_alive Backends currently in the Maglev set."
+    );
     let _ = writeln!(out, "# TYPE xdp_edge_backends_alive gauge");
     let _ = writeln!(out, "xdp_edge_backends_alive {}", backends_alive);
 
-    let _ = writeln!(out, "# HELP xdp_edge_lut_version Active Maglev LUT version.");
+    let _ = writeln!(
+        out,
+        "# HELP xdp_edge_lut_version Active Maglev LUT version."
+    );
     let _ = writeln!(out, "# TYPE xdp_edge_lut_version gauge");
     let _ = writeln!(out, "xdp_edge_lut_version {}", lut_version);
 
@@ -109,8 +165,16 @@ mod tests {
             "xdp_edge_backends_alive",
             "xdp_edge_lut_version",
         ] {
-            assert!(text.contains(&format!("# HELP {}", name)), "缺少 HELP: {}", name);
-            assert!(text.contains(&format!("# TYPE {}", name)), "缺少 TYPE: {}", name);
+            assert!(
+                text.contains(&format!("# HELP {}", name)),
+                "缺少 HELP: {}",
+                name
+            );
+            assert!(
+                text.contains(&format!("# TYPE {}", name)),
+                "缺少 TYPE: {}",
+                name
+            );
         }
     }
 
@@ -125,7 +189,11 @@ mod tests {
             samples += 1;
             // exposition 格式：metric_name{labels} value
             let (name_part, value_part) = line.rsplit_once(' ').expect("样本行缺值");
-            assert!(name_part.starts_with("xdp_edge_"), "非法指标名: {}", name_part);
+            assert!(
+                name_part.starts_with("xdp_edge_"),
+                "非法指标名: {}",
+                name_part
+            );
             value_part.parse::<f64>().expect("值非数值");
             if name_part.contains('{') {
                 assert!(name_part.ends_with('}'), "标签未闭合: {}", name_part);

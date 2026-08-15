@@ -60,11 +60,20 @@ fn data_packet(data: &[u8], msg_id: u64, start: usize, end: usize) -> Vec<u8> {
 
 impl SenderCore {
     pub fn new(cfg: TransportConfig) -> Self {
-        Self { cfg, out: HashMap::new() }
+        Self {
+            cfg,
+            out: HashMap::new(),
+        }
     }
 
     /// 启动一条新消息：立即发出 unscheduled 窗口内的所有分片（首 RTT 不等授权）
-    pub fn start(&mut self, dest: SocketAddr, msg_id: u64, data: Vec<u8>, now: Instant) -> Vec<Action> {
+    pub fn start(
+        &mut self,
+        dest: SocketAddr,
+        msg_id: u64,
+        data: Vec<u8>,
+        now: Instant,
+    ) -> Vec<Action> {
         let unscheduled = self.cfg.unscheduled_bytes.min(data.len());
         let msg = OutMsg {
             data,
@@ -81,10 +90,18 @@ impl SenderCore {
     }
 
     /// 处理 GRANT：推进累计授权，补发新解锁的分片
-    pub fn handle_grant(&mut self, src: SocketAddr, pkt: &Packet, now: Instant, actions: &mut Vec<Action>) {
+    pub fn handle_grant(
+        &mut self,
+        src: SocketAddr,
+        pkt: &Packet,
+        now: Instant,
+        actions: &mut Vec<Action>,
+    ) {
         let key = (src, pkt.msg_id);
         let new_limit = (pkt.offset as usize).min(self.out.get(&key).map_or(0, |m| m.data.len()));
-        let Some(msg) = self.out.get(&key) else { return };
+        let Some(msg) = self.out.get(&key) else {
+            return;
+        };
         if new_limit <= msg.granted_to {
             return; // 重复/过期的累计授权
         }
@@ -95,16 +112,27 @@ impl SenderCore {
     /// 注意：对端的授权视角可能超前于本地 next_send（末尾 GRANT 丢失时），
     /// RESEND 范围仍在授权窗口内，重发是合法的——但必须把这部分补进记账，
     /// 否则对端收全交付后不再授权，本地 next_send 永远追不上，造成停滞。
-    pub fn handle_resend(&mut self, src: SocketAddr, pkt: &Packet, now: Instant, actions: &mut Vec<Action>) {
+    pub fn handle_resend(
+        &mut self,
+        src: SocketAddr,
+        pkt: &Packet,
+        now: Instant,
+        actions: &mut Vec<Action>,
+    ) {
         let key = (src, pkt.msg_id);
         let pkt_size = self.cfg.packet_size;
-        let Some(msg) = self.out.get(&key) else { return };
+        let Some(msg) = self.out.get(&key) else {
+            return;
+        };
         let start = (pkt.offset as usize).min(msg.data.len());
         let end = (start + pkt.length as usize).min(msg.data.len());
         let mut off = start;
         while off < end {
             let (s, e) = msg.chunk_range(off, pkt_size);
-            actions.push(Action::Send { dest: src, bytes: data_packet(&msg.data, pkt.msg_id, s, e) });
+            actions.push(Action::Send {
+                dest: src,
+                bytes: data_packet(&msg.data, pkt.msg_id, s, e),
+            });
             off = e.max(s + 1);
         }
         let msg = self.out.get_mut(&key).unwrap();
@@ -133,23 +161,35 @@ impl SenderCore {
         let linger = self.cfg.linger;
         let pkt_size = self.cfg.packet_size;
         // 回收 linger 期结束的完成消息
-        self.out.retain(|_, m| m.done_at.is_none_or(|t| now.duration_since(t) < linger));
+        self.out
+            .retain(|_, m| m.done_at.is_none_or(|t| now.duration_since(t) < linger));
         let keys: Vec<_> = self.out.keys().copied().collect();
         for key in keys {
-            let Some(msg) = self.out.get(&key) else { continue };
+            let Some(msg) = self.out.get(&key) else {
+                continue;
+            };
             if msg.done_at.is_some() || now.duration_since(msg.last_progress) < timeout {
                 continue;
             }
-            let last_off = if msg.next_send == 0 { 0 } else { ((msg.next_send - 1) / pkt_size) * pkt_size };
+            let last_off = if msg.next_send == 0 {
+                0
+            } else {
+                ((msg.next_send - 1) / pkt_size) * pkt_size
+            };
             let (s, e) = msg.chunk_range(last_off, pkt_size);
-            actions.push(Action::Send { dest: key.0, bytes: data_packet(&msg.data, key.1, s, e) });
+            actions.push(Action::Send {
+                dest: key.0,
+                bytes: data_packet(&msg.data, key.1, s, e),
+            });
             self.out.get_mut(&key).unwrap().last_progress = now;
         }
     }
 
     /// 消息是否已完全发出（linger 期内的消息视为 done，但仍可响应 RESEND）
     pub fn is_done(&self, dest: SocketAddr, msg_id: u64) -> bool {
-        self.out.get(&(dest, msg_id)).is_none_or(|m| m.done_at.is_some())
+        self.out
+            .get(&(dest, msg_id))
+            .is_none_or(|m| m.done_at.is_some())
     }
 
     /// 立即回收（超时放弃等场景）；正常完成的消息靠 linger 自动回收
@@ -174,16 +214,30 @@ impl SenderCore {
     }
 
     /// 将 [next_send, limit) 区间内的分片发出
-    fn pump(&mut self, key: (SocketAddr, u64), limit: usize, now: Instant, actions: &mut Vec<Action>) {
+    fn pump(
+        &mut self,
+        key: (SocketAddr, u64),
+        limit: usize,
+        now: Instant,
+        actions: &mut Vec<Action>,
+    ) {
         let pkt_size = self.cfg.packet_size;
-        let Some(msg) = self.out.get_mut(&key) else { return };
+        let Some(msg) = self.out.get_mut(&key) else {
+            return;
+        };
         if msg.done_at.is_some() {
             return;
         }
         let limit = limit.min(msg.data.len());
         while msg.next_send < limit {
-            let (s, e) = (msg.next_send, (msg.next_send + pkt_size).min(msg.data.len()));
-            actions.push(Action::Send { dest: key.0, bytes: data_packet(&msg.data, key.1, s, e) });
+            let (s, e) = (
+                msg.next_send,
+                (msg.next_send + pkt_size).min(msg.data.len()),
+            );
+            actions.push(Action::Send {
+                dest: key.0,
+                bytes: data_packet(&msg.data, key.1, s, e),
+            });
             msg.next_send = e;
         }
         msg.granted_to = msg.granted_to.max(limit);

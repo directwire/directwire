@@ -1,7 +1,7 @@
 //! 连接跟踪过期与 LRU 淘汰测试（端到端走模拟器管线）。
 
 use xdp_edge::conntrack::{ConnEntry, ConnTrack};
-use xdp_edge::packet::{Action, FiveTuple, Packet, PROTO_TCP, TCP_ACK};
+use xdp_edge::packet::{Action, FiveTuple, PROTO_TCP, Packet, TCP_ACK};
 use xdp_edge::simulator::{SimConfig, XdpSimulator};
 
 fn tuple(port: u16) -> FiveTuple {
@@ -57,17 +57,28 @@ fn lru_eviction_under_capacity_pressure() {
                 dst_port: 443,
                 protocol: PROTO_TCP,
             },
-            ConnEntry { backend_ip: 0x0a00_0001, last_seen_ns: i as u64 },
+            ConnEntry {
+                backend_ip: 0x0a00_0001,
+                last_seen_ns: i as u64,
+            },
         );
     }
     assert_eq!(ct.len(), 1024, "LRU 表超出容量");
-    assert!(ct.evictions >= 5000 - 1024, "淘汰计数不足: {}", ct.evictions);
+    assert!(
+        ct.evictions >= 5000 - 1024,
+        "淘汰计数不足: {}",
+        ct.evictions
+    );
 }
 
 #[test]
 fn connection_affinity_consistent_backend() {
     // 同一条流在连接生命周期内永远转发到同一后端（IPIP 目的地稳定）
-    let cfg = SimConfig { rate_per_sec: 1e9, rate_burst: 1e6, ..Default::default() };
+    let cfg = SimConfig {
+        rate_per_sec: 1e9,
+        rate_burst: 1e6,
+        ..Default::default()
+    };
     let backends = [0x0a00_0001u32, 0x0a00_0002, 0x0a00_0003];
     let mut sim = XdpSimulator::new(&cfg, &backends, 4099);
 
