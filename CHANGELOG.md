@@ -5,6 +5,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- `homa-rpc` long-message hardening pass: UDP GSO/GRO batching, ahashed
+  completed-cache and incoming maps, zero-copy send path (moved frames,
+  borrowed bodies), and a fixed 32-worker handler pool replacing per-request
+  thread spawn. Mixed-load benchmark (91% 100 B short + 9% 1 MiB long, 8
+  workers): short-RPC P50 2.7× faster than TCP (520 µs vs 1.4 ms), P90 1.9× /
+  P99 1.2× faster; long-RPC P50 38 ms → 4.6 ms; total wall time 30% faster
+  (66 ms vs 94 ms). Added `trace_probe`/`mix_probe` diagnostic timelines;
+  removed scratch spikes.
+
 ## [0.2.0] — 2026-08-15
 
 ### Added

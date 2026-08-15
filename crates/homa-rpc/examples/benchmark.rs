@@ -14,6 +14,25 @@ use std::time::{Duration, Instant};
 
 use homa_rpc::rpc::tcp_baseline::{self, TcpEchoServer};
 use homa_rpc::rpc::{RpcClient, RpcServer};
+use homa_rpc::transport::TransportConfig;
+
+/// homa 调度参数：grant_increment 一次授权整条 1MiB 消息（减少授权往返）。
+/// overcommit 可经 HOMA_OVERCOMMIT 环境变量覆盖（GRO 后洪泛成本大降，值得重扫）。
+fn homa_config() -> TransportConfig {
+    let oc = std::env::var("HOMA_OVERCOMMIT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(2);
+    let ginc = std::env::var("HOMA_GRANT_INC")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1 << 20);
+    TransportConfig {
+        overcommit: oc,
+        grant_increment: ginc,
+        ..Default::default()
+    }
+}
 
 /// 工作线程数
 const WORKERS: usize = 8;
@@ -27,6 +46,8 @@ const LONG_BYTES: usize = 1 << 20; // 1MiB
 struct Stats {
     short: Vec<Duration>,
     long: Vec<Duration>,
+    /// 长 RPC 的 send_to 阶段耗时（请求字节进入发送路径的时间）
+    long_send: Vec<Duration>,
 }
 
 impl Stats {
@@ -41,8 +62,10 @@ impl Stats {
     fn report(&self, name: &str) {
         let mut short = self.short.clone();
         let mut long = self.long.clone();
+        let mut long_send = self.long_send.clone();
         short.sort();
         long.sort();
+        long_send.sort();
         let us = |d: Duration| format!("{:.1}", d.as_secs_f64() * 1e6);
         println!(
             "| {name} | {} | {} | {} | {} | {} | {} | {} | {} |",
@@ -55,6 +78,15 @@ impl Stats {
             us(Self::percentile(&long, 0.90)),
             us(Self::percentile(&long, 0.99)),
         );
+        if !long_send.is_empty() {
+            println!(
+                "  长RPC send_to 阶段: P50={}µs P90={}µs (占总时长 {:.0}%)",
+                us(Self::percentile(&long_send, 0.50)),
+                us(Self::percentile(&long_send, 0.90)),
+                100.0 * Self::percentile(&long_send, 0.50).as_secs_f64()
+                    / Self::percentile(&long, 0.50).as_secs_f64()
+            );
+        }
     }
 }
 
@@ -63,6 +95,7 @@ fn run_mixed(homa: bool) -> Stats {
     let stats = Stats {
         short: Vec::new(),
         long: Vec::new(),
+        long_send: Vec::new(),
     };
     let stats = Arc::new(Mutex::new(stats));
     let counter = Arc::new(AtomicU64::new(0));
@@ -77,8 +110,11 @@ fn run_mixed(homa: bool) -> Stats {
         Tcp(std::net::SocketAddr, TcpEchoServer),
     }
     let target = if homa {
-        let server = RpcServer::spawn("127.0.0.1:0", |req| req.to_vec()).unwrap();
-        let mut client = RpcClient::new("127.0.0.1:0").unwrap();
+        let server = RpcServer::spawn_with_config("127.0.0.1:0", homa_config(), |req| {
+            req.to_vec()
+        })
+        .unwrap();
+        let mut client = RpcClient::new_with_config("127.0.0.1:0", homa_config()).unwrap();
         client.attempt_timeout = Duration::from_secs(5);
         client.max_attempts = 3;
         // 预热
@@ -95,9 +131,20 @@ fn run_mixed(homa: bool) -> Stats {
     };
     let target = Arc::new(target);
 
+    // 每 every 次有 1 次长 RPC（可用 HOMA_LONG_EVERY 覆盖；1 = 全长，大值 = 几乎全短）
+    let every = std::env::var("HOMA_LONG_EVERY")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(11);
+    // 工作线程数（诊断用，可覆盖）
+    let workers = std::env::var("HOMA_WORKERS")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(WORKERS);
+
     let t0 = Instant::now();
     let mut handles = Vec::new();
-    for _ in 0..WORKERS {
+    for _ in 0..workers {
         let counter = Arc::clone(&counter);
         let stats = Arc::clone(&stats);
         let target = Arc::clone(&target);
@@ -109,8 +156,7 @@ fn run_mixed(homa: bool) -> Stats {
                 if n >= TOTAL_OPS {
                     break;
                 }
-                // 每 11 次有 1 次长 RPC → 550 次中含 50 次长 RPC
-                let is_long = n % 11 == 10;
+                let is_long = n % every == every - 1;
                 let payload = if is_long { &lp } else { &sp };
                 let start = Instant::now();
                 match &*target {
@@ -168,13 +214,19 @@ fn main() {
     homa.report("homa-rpc");
     tcp.report("tcp-baseline");
 
-    // 短 RPC P99 加速比
+    // 短 RPC 加速比（tcp/homa，>1 = homa 更快）。P50/P90 是头条；
+    // P99 尾部受长 RPC 洪泛在接收端的排队影响，与 TCP 大体持平。
     let mut hs = homa.short.clone();
     let mut ts = tcp.short.clone();
     hs.sort();
     ts.sort();
-    let p99 = |v: &[Duration]| Stats::percentile(v, 0.99).as_secs_f64();
+    let p = |v: &[Duration], q: f64| Stats::percentile(v, q).as_secs_f64();
     if !hs.is_empty() && !ts.is_empty() {
-        println!("\n短 RPC P99 加速比: {:.1}×", p99(&ts) / p99(&hs));
+        println!(
+            "\n短 RPC 加速比 (tcp/homa): P50 {:.2}×  P90 {:.2}×  P99 {:.2}×",
+            p(&ts, 0.50) / p(&hs, 0.50),
+            p(&ts, 0.90) / p(&hs, 0.90),
+            p(&ts, 0.99) / p(&hs, 0.99),
+        );
     }
 }

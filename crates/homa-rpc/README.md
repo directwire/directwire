@@ -32,7 +32,7 @@ Homa（Stanford, Ousterhout）是要替换数据中心 TCP 的消息导向传输
                   │   IO 线程: recv_from + 5ms tick    │
                   └───────────────────────────────────┘
 
-        RpcServer: recv 循环 ──> 幂等去重缓存 ──> 每请求工作线程 ──> 回响应
+        RpcServer: recv 循环 ──> 幂等去重缓存 ──> 固定工作池(32) ──> 回响应
 ```
 
 关键工程决策：两个核心状态机**不碰 socket**，输入包、输出 `Action` 列表（Send/Deliver），因此调度器、重组、重传全部可以脱离网络做确定性单测。
@@ -40,7 +40,7 @@ Homa（Stanford, Ousterhout）是要替换数据中心 TCP 的消息导向传输
 ## 快速开始
 
 ```bash
-cargo test                              # 20 个测试：SRPT/重组/重传/RPC 端到端
+cargo test                              # 29 个测试：SRPT/重组/重传/RPC 端到端
 cargo run --release --example benchmark # loopback 混合负载对比 TCP
 ```
 
@@ -56,25 +56,26 @@ let resp = client.call(server.addr(), b"ping")?;                     // at-least
 
 | 指标 | Homa 论文/上游 | 本项目 |
 |---|---|---|
-| 短 RPC P99 vs TCP | **快 19-72×**（数据中心交换网，80% 负载 P99<15µs） | loopback 混合负载下 P99 快 ~2×（见 benchmark 输出；loopback 无网卡优先级队列，不声称复现论文数字） |
+| 短 RPC vs TCP | **快 19-72×**（数据中心交换网，80% 负载 P99<15µs） | loopback 混合负载下 P50 快 2.7×、P99 快 1.2×（见下方实测；loopback 无网卡优先级队列，不声称复现论文数字） |
 | IANA 协议号 | **146**（HOMA） | 用户态 UDP 承载，未用协议号 |
 | 上游状态 | Linux 内核补丁 **v16** 轮（2024-11，仍在 review） | 纯用户态，免内核补丁 |
 
-本地 benchmark 实测（release，loopback，500×100B 短 + 50×1MB 长，8 线程）：
+本地 benchmark 实测（release，loopback，500×100B 短 + 50×1MB 长，8 线程，`HOMA_LONG_EVERY=11`）：
 
-| 实现 | 短P50 | 短P90 | 短P99 | 长P50 | 长P90 | 长P99 |
-|---|---|---|---|---|---|---|
-| homa-rpc | 862 µs | 1363 µs | 4284 µs | 38.2 ms | 51.0 ms | 234.2 ms |
-| tcp-baseline（短连接） | 1447 µs | 1943 µs | 3145 µs | 2.9 ms | 3.9 ms | 15.9 ms |
+| 实现 | 短P50 | 短P90 | 短P99 | 长P50 | 长P90 | 长P99 | 总墙钟 |
+|---|---|---|---|---|---|---|---|
+| homa-rpc | 520 µs | 964 µs | 1569 µs | 4.62 ms | 5.93 ms | 7.51 ms | **66.4 ms** |
+| tcp-baseline（短连接） | 1407 µs | 1781 µs | 1934 µs | 2.71 ms | 3.22 ms | 3.49 ms | 94.3 ms |
 
-短 RPC P50 快 ~1.7×；单条 1MB RPC 从初版 73ms 优化到 ~10ms（授权节流 + 大缓冲 + overcommit），
-但高并发下长消息仍明显慢于 TCP（见 TODO）。loopback 无网卡优先级队列，不声称复现论文数字。
+短 RPC P50 快 **2.7×**（P90 1.85×、P99 1.23×，全档位都赢）；长 RPC 为 SRPT 调度让位付协议税
+（~1.7× 慢，单条 1MB RPC 已从初版 73ms → 攻坚前 38ms → 现 4.6ms，约 16×）；总墙钟 550 次
+混合负载 homa 快于 TCP **30%**。长消息的差距是结构性协议成本（首 RTT 授权往返 + 让位短消息），
+正是短消息全档位碾压的代价——loopback 无网卡优先级队列，不声称复现论文数字。
 
 ## 已知 TODO / 技术债
 
-- **长消息高并发吞吐仍是最大短板**：单 IO 线程 + 授权自时钟的调度延迟叠加，
-  8 线程 1MB 混合负载下长 RPC P50 38ms vs TCP 2.9ms。方向：真正的 pacing（定时器轮/批量授权）、
-  多 IO 线程、io_uring/AF_XDP 旁路。
+- **长消息剩余差距为结构性协议税**（授权往返 + SRPT 让位），优化的边际在 io_loop 锁内泵送：
+  可把分片构建从收包线程移出到发送线程（描述符级零拷贝泵送），预计省 ~170µs/方向，风险在传输核心路径。
 - 8 级 QoS 队列已实现发送侧插队（txqueue.rs，有单测），但 loopback 上无网卡队列，效果仅限本机调度顺序。
 - overcommit（默认 K=2）+ starve_threshold 强制授权已防饿死；K 的网络侧最优值未调。
 - BUSY 仅定义与处理，默认阈值极大不触发。

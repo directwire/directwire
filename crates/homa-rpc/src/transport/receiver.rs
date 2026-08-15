@@ -9,7 +9,8 @@
 //! - 授予窗口内缺包超时 → 发 RESEND 请求重发；
 //! - 授权后无进展超时 → 重发 GRANT（GRANT 本身可能丢失）。
 
-use std::collections::{HashMap, VecDeque};
+use std::cmp::Reverse;
+use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 use std::net::SocketAddr;
 use std::time::Instant;
 
@@ -61,20 +62,31 @@ const COMPLETED_CACHE: usize = 4096;
 /// 接收端核心状态机
 pub struct ReceiverCore {
     cfg: TransportConfig,
-    incoming: HashMap<MsgKey, InMsg>,
+    /// 热路径哈希表。ahash 的 RandomState 每实例随机种子（抗哈希洪泛），
+    /// 但哈希速度比默认 SipHash 快 ~3×——长消息每分片查一次，是锁内吞吐的主要杠杆。
+    incoming: HashMap<MsgKey, InMsg, ahash::RandomState>,
     /// 当前授权集合（SRPT 前 K 名 + 防饿死强制名额）
     granting: Vec<MsgKey>,
-    /// 近期已交付消息键（去重）
-    completed: VecDeque<MsgKey>,
+    /// 近期已交付消息键（去重）。HashSet 提供 O(1) 成员检查——
+    /// 长消息每分片都查 contains，线性 VecDeque 在缓存增长后成为接收端锁内最大热点。
+    completed: HashSet<MsgKey, ahash::RandomState>,
+    /// FIFO 逐出顺序（仅用于淘汰旧键，不参与成员检查）
+    completed_order: VecDeque<MsgKey>,
+    /// 防饿死候选最小堆：键 = 到期时刻（最近授权 + 阈值），堆顶最先到期。
+    /// 用于 O(1) 即时检查——长消息窗口耗尽后不必等 5ms tick 才被救起；
+    /// 未到期条目不会被弹出丢弃，重授权会以新到期时刻重新入堆
+    starve_queue: BinaryHeap<Reverse<(Instant, MsgKey)>>,
 }
 
 impl ReceiverCore {
     pub fn new(cfg: TransportConfig) -> Self {
         Self {
             cfg,
-            incoming: HashMap::new(),
+            incoming: HashMap::with_hasher(ahash::RandomState::new()),
             granting: Vec::new(),
-            completed: VecDeque::new(),
+            completed: HashSet::with_hasher(ahash::RandomState::new()),
+            completed_order: VecDeque::new(),
+            starve_queue: BinaryHeap::new(),
         }
     }
 
@@ -104,6 +116,12 @@ impl ReceiverCore {
         }
 
         let unscheduled = self.cfg.unscheduled_bytes.min(total_len);
+        let is_new = !self.incoming.contains_key(&key);
+        if is_new {
+            // 到期时刻 = 最近授权 + 阈值：没到阈值前不会被弹出丢弃
+            self.starve_queue
+                .push(Reverse((now + self.cfg.starve_threshold, key)));
+        }
         let msg = self.incoming.entry(key).or_insert_with(|| {
             let chunks = total_len.div_ceil(pkt_size).max(1);
             InMsg {
@@ -138,8 +156,41 @@ impl ReceiverCore {
         if msg.complete() {
             let data = std::mem::take(&mut msg.buf);
             self.deliver(key, src, data, actions);
+            // 释放了授权名额，跑一轮调度让下一条消息补位
+            self.schedule(now, actions);
+            return;
         }
-        self.schedule(now, actions);
+
+        // 调度频率节流：新消息才需要全表排序（可能抢占授权集合）；
+        // 已在收的消息只按需推进自身窗口（issue_grant 带节流，窗口富余时静默），
+        // 避免长消息洪泛下每收一个分片都 O(n log n) 全表排序（状态锁内最大浪费）。
+        if is_new {
+            self.schedule(now, actions);
+        } else if self.granting.contains(&key) {
+            self.issue_grant(key, now, actions, false);
+        }
+        // 即时防饿死：活动流量顺手救起等待超阈值的消息（无需等 tick）
+        self.starve_check(now, actions);
+    }
+
+    /// 即时防饿死：检查堆顶的挨饿候选是否到期且仍未获授权，是则触发完整调度
+    /// 让出授权。候选非挨饿（已完成/已被授权）则弹掉过期项继续看下一个。
+    fn starve_check(&mut self, now: Instant, actions: &mut Vec<Action>) {
+        while let Some(&Reverse((t, k))) = self.starve_queue.peek() {
+            if t > now {
+                return; // 无到期候选
+            }
+            self.starve_queue.pop();
+            let starved = self.incoming.get(&k).is_some_and(|m| {
+                !self.granting.contains(&k)
+                    && m.granted_to < m.total_len
+                    && now.duration_since(m.last_grant) >= self.cfg.starve_threshold
+            });
+            if starved {
+                self.schedule(now, actions);
+                return;
+            }
+        }
     }
 
     /// 周期滴答：缺包超时发 RESEND；授权无进展重发 GRANT；并推进调度
@@ -259,16 +310,22 @@ impl ReceiverCore {
             )
             .encode(&[]),
         });
+        // 刚获授权：以新的到期时刻重排防饿死候选（堆里旧条目过期后会被弹掉）
+        self.starve_queue
+            .push(Reverse((now + self.cfg.starve_threshold, key)));
     }
 
     /// 交付一条完整消息
     fn deliver(&mut self, key: MsgKey, src: SocketAddr, data: Vec<u8>, actions: &mut Vec<Action>) {
         self.incoming.remove(&key);
         self.granting.retain(|k| *k != key);
-        if self.completed.len() >= COMPLETED_CACHE {
-            self.completed.pop_front();
+        self.completed.insert(key);
+        self.completed_order.push_back(key);
+        if self.completed_order.len() > COMPLETED_CACHE {
+            if let Some(old) = self.completed_order.pop_front() {
+                self.completed.remove(&old);
+            }
         }
-        self.completed.push_back(key);
         actions.push(Action::Deliver {
             src,
             msg_id: key.1,

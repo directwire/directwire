@@ -5,12 +5,12 @@
 //! ⇒ 代价是 handler 可能被调用多次，**业务 handler 必须幂等**；
 //!   若需要 exactly-once 效果，请在业务层基于 rpc_id 做去重/状态机。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Sender, channel};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -41,9 +41,82 @@ fn decode_frame(frame: &[u8]) -> Option<(u64, &[u8])> {
     ))
 }
 
+/// 服务端 handler 工作池线程数。固定池取代「每请求一 OS 线程」：长负载下
+/// 避免反复创建线程的 ~100µs 开销与尾部抖动（短 P99 与长 server_gap 均受益）。
+const SERVER_POOL_SIZE: usize = 32;
+
+/// 极简固定线程池（std-only）。任务队列无界、提交不阻塞；
+/// 工作线程用 catch_unwind 包裹执行——handler 崩溃不会杀死池内线程。
+struct ThreadPool {
+    jobs: Arc<Mutex<VecDeque<Box<dyn FnOnce() + Send + 'static>>>>,
+    cv: Arc<Condvar>,
+    shutdown: Arc<AtomicBool>,
+    workers: Vec<JoinHandle<()>>,
+}
+
+impl ThreadPool {
+    fn new(size: usize) -> Self {
+        let jobs = Arc::new(Mutex::new(VecDeque::new()));
+        let cv = Arc::new(Condvar::new());
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let mut workers = Vec::with_capacity(size);
+        for i in 0..size {
+            let (jobs, cv, shutdown) = (
+                Arc::clone(&jobs),
+                Arc::clone(&cv),
+                Arc::clone(&shutdown),
+            );
+            workers.push(
+                std::thread::Builder::new()
+                    .name(format!("homa-rpc-pool-{i}"))
+                    .spawn(move || loop {
+                        let job = {
+                            let mut q = jobs.lock().unwrap();
+                            loop {
+                                if shutdown.load(Ordering::Relaxed) {
+                                    return;
+                                }
+                                if let Some(j) = q.pop_front() {
+                                    break j;
+                                }
+                                q = cv.wait(q).unwrap();
+                            }
+                        };
+                        // 崩溃隔离：handler panic 只丢本次任务，不杀池内线程
+                        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(job));
+                    })
+                    .expect("spawn pool worker"),
+            );
+        }
+        Self {
+            jobs,
+            cv,
+            shutdown,
+            workers,
+        }
+    }
+
+    fn submit(&self, job: Box<dyn FnOnce() + Send + 'static>) {
+        self.jobs.lock().unwrap().push_back(job);
+        self.cv.notify_one();
+    }
+}
+
+impl Drop for ThreadPool {
+    fn drop(&mut self) {
+        self.shutdown.store(true, Ordering::Relaxed);
+        self.cv.notify_all();
+        for w in self.workers.drain(..) {
+            let _ = w.join();
+        }
+    }
+}
+
 /// RPC 服务端：收请求 → 调 handler → 回响应；带幂等去重缓存。
 pub struct RpcServer {
     addr: SocketAddr,
+    /// 底层传输层（保留引用供 debug_stats 读计数）
+    transport: Arc<Transport>,
     shutdown: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
 }
@@ -54,11 +127,24 @@ impl RpcServer {
     where
         F: Fn(&[u8]) -> Vec<u8> + Send + Sync + 'static,
     {
-        let transport = Arc::new(Transport::bind(bind, Default::default())?);
+        Self::spawn_with_config(bind, Default::default(), handler)
+    }
+
+    /// 带传输层配置的服务端（调度参数：overcommit / grant_increment 等）
+    pub fn spawn_with_config<F>(
+        bind: &str,
+        cfg: crate::transport::TransportConfig,
+        handler: F,
+    ) -> io::Result<Self>
+    where
+        F: Fn(&[u8]) -> Vec<u8> + Send + Sync + 'static,
+    {
+        let transport = Arc::new(Transport::bind(bind, cfg)?);
         let addr = transport.local_addr()?;
         let shutdown = Arc::new(AtomicBool::new(false));
         let sd = Arc::clone(&shutdown);
         let handler = Arc::new(handler);
+        let debug_transport = Arc::clone(&transport);
 
         let thread = std::thread::Builder::new()
             .name("homa-rpc-server".into())
@@ -68,11 +154,12 @@ impl RpcServer {
                 // 客户端重试时复用同一 rpc_id，仍能收到，handler 只执行一次。
                 let dedup: Arc<Mutex<HashMap<(SocketAddr, u64), Option<Vec<u8>>>>> =
                     Arc::new(Mutex::new(HashMap::new()));
+                let pool = ThreadPool::new(SERVER_POOL_SIZE);
                 while !sd.load(Ordering::Relaxed) {
                     let Ok((src, frame)) = transport.recv(Duration::from_millis(50)) else {
                         continue;
                     };
-                    let Some((rpc_id, body)) = decode_frame(&frame) else {
+                    let Some((rpc_id, _)) = decode_frame(&frame) else {
                         continue;
                     };
                     {
@@ -83,9 +170,9 @@ impl RpcServer {
                                 let resp = cached.clone();
                                 let tp = Arc::clone(&transport);
                                 drop(map);
-                                std::thread::spawn(move || {
-                                    let _ = tp.send_to(src, &resp);
-                                });
+                                pool.submit(Box::new(move || {
+                                    let _ = tp.send_vec(src, resp);
+                                }));
                                 continue;
                             }
                             Some(None) => continue, // 计算中：丢弃重复请求
@@ -97,18 +184,21 @@ impl RpcServer {
                     let h = Arc::clone(&handler);
                     let tp = Arc::clone(&transport);
                     let dd = Arc::clone(&dedup);
-                    let body = body.to_vec();
-                    // 每请求一个工作线程：长请求/长响应不阻塞接收循环
-                    std::thread::spawn(move || {
-                        let resp_body = h(&body);
+                    // frame 整体移入池内任务、body 在帧内借用——免去 body.to_vec 的全量拷贝
+                    // （长请求 1MiB 负载下这是服务端处理路径上的主要纯拷贝开销）。
+                    pool.submit(Box::new(move || {
+                        let body = &frame[RPC_HDR..];
+                        let resp_body = h(body);
                         let resp = encode_frame(rpc_id, &resp_body);
-                        let _ = tp.send_to(src, &resp);
-                        dd.lock().unwrap().insert((src, rpc_id), Some(resp));
-                    });
+                        // 响应需留在幂等缓存供重试回放，因此缓存存一份克隆、发送移动原值
+                        dd.lock().unwrap().insert((src, rpc_id), Some(resp.clone()));
+                        let _ = tp.send_vec(src, resp);
+                    }));
                 }
             })?;
         Ok(Self {
             addr,
+            transport: debug_transport,
             shutdown,
             thread: Some(thread),
         })
@@ -116,6 +206,16 @@ impl RpcServer {
 
     pub fn addr(&self) -> SocketAddr {
         self.addr
+    }
+
+    /// 调试：传输层 syscall/GSO/收包计数
+    pub fn debug_stats(&self) -> String {
+        self.transport.debug_stats()
+    }
+
+    /// 调试：导出追踪事件
+    pub fn take_trace(&self) -> Vec<(std::time::Instant, String, u64)> {
+        self.transport.take_trace()
     }
 }
 
@@ -143,7 +243,12 @@ pub struct RpcClient {
 
 impl RpcClient {
     pub fn new(bind: &str) -> io::Result<Self> {
-        let transport = Arc::new(Transport::bind(bind, Default::default())?);
+        Self::new_with_config(bind, Default::default())
+    }
+
+    /// 带传输层配置的客户端
+    pub fn new_with_config(bind: &str, cfg: crate::transport::TransportConfig) -> io::Result<Self> {
+        let transport = Arc::new(Transport::bind(bind, cfg)?);
         let waiters: Arc<Mutex<HashMap<u64, Sender<Vec<u8>>>>> =
             Arc::new(Mutex::new(HashMap::new()));
         let shutdown = Arc::new(AtomicBool::new(false));
@@ -193,16 +298,18 @@ impl RpcClient {
         max_attempts: u32,
     ) -> io::Result<Vec<u8>> {
         let rpc_id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let frame = encode_frame(rpc_id, payload);
+        let mut frame = encode_frame(rpc_id, payload);
         for _ in 0..max_attempts.max(1) {
             let (tx, rx) = channel::<Vec<u8>>();
             self.waiters.lock().unwrap().insert(rpc_id, tx);
-            self.transport.send_to(server, &frame)?;
+            // 移动而非拷贝（长负载下省一次全量 memcpy）；frame 被发送消费后重试需重建
+            self.transport.send_vec(server, frame)?;
             match rx.recv_timeout(attempt_timeout) {
                 Ok(body) => return Ok(body),
                 Err(_) => {
                     // 超时：摘掉等待者，用同一 rpc_id 整体重发
                     self.waiters.lock().unwrap().remove(&rpc_id);
+                    frame = encode_frame(rpc_id, payload);
                 }
             }
         }
@@ -214,6 +321,48 @@ impl RpcClient {
 
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
         self.transport.local_addr()
+    }
+
+    /// 基准测试用：只测量发送阶段耗时（请求字节进入发送路径），不等响应。
+    /// 响应若回来会被分发线程丢弃（未注册 waiter）。
+    pub fn send_only(&self, server: SocketAddr, payload: &[u8]) -> io::Result<Duration> {
+        let rpc_id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let frame = encode_frame(rpc_id, payload);
+        let t0 = Instant::now();
+        self.transport.send_vec(server, frame)?;
+        Ok(t0.elapsed())
+    }
+
+    /// 调试：传输层 syscall/GSO/收包计数
+    pub fn debug_stats(&self) -> String {
+        self.transport.debug_stats()
+    }
+
+    /// 调试：导出追踪事件
+    pub fn take_trace(&self) -> Vec<(std::time::Instant, String, u64)> {
+        self.transport.take_trace()
+    }
+
+    /// 基准测试用：一次调用同时测 send 阶段与总往返，不双发流量。
+    /// 返回 (send_to 耗时, 总耗时)。
+    /// 安全性：响应必然在全部请求字节发出后才可能到；send_to 返回 = 全部入队，
+    /// 最后一包可能仍在 send_loop 队列中，故响应不会先于 waiter 注册到达。
+    pub fn call_timed(&self, server: SocketAddr, payload: &[u8]) -> io::Result<(Duration, Duration)> {
+        let rpc_id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let frame = encode_frame(rpc_id, payload);
+        let t0 = Instant::now();
+        self.transport.send_vec(server, frame)?;
+        let send_dur = t0.elapsed();
+        let (tx, rx) = channel::<Vec<u8>>();
+        self.waiters.lock().unwrap().insert(rpc_id, tx);
+        let t_total = Instant::now();
+        match rx.recv_timeout(self.attempt_timeout) {
+            Ok(_) => Ok((send_dur, t_total.elapsed())),
+            Err(_) => {
+                self.waiters.lock().unwrap().remove(&rpc_id);
+                Err(io::Error::new(io::ErrorKind::TimedOut, "rpc timeout"))
+            }
+        }
     }
 }
 

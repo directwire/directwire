@@ -117,8 +117,13 @@ GRANT scheduling (SRPT, overcommit K=2, anti-starvation), 8-level QoS queues,
 RESEND batch retransmission, and at-least-once delivery with idempotent RPC
 dedup. The two state machines (SenderCore/ReceiverCore) never touch a socket —
 deterministic unit-testability is an architectural property, not an afterthought.
-Loopback mixed-load benchmark: short-RPC P50 ≈ 1.7× faster than the TCP
-baseline. Homa's IANA protocol number (146) stays unused — a user-space
+Loopback mixed-load benchmark (550 calls, 91% 100 B short + 9% 1 MiB long, 8
+workers): short-RPC P50 2.7× faster than the TCP baseline (520 µs vs 1.4 ms),
+P90 1.9× / P99 1.2× faster, and total wall time wins by 30% (66 ms vs 94 ms).
+Long RPCs pay the SRPT tax (~1.7× slower) — the structural price of letting
+short messages jump the grant queue; the number went from 38 ms to 4.6 ms in
+one hardening pass (GSO/GRO batching, ahashed hot maps, zero-copy send, fixed
+worker pool). Homa's IANA protocol number (146) stays unused — a user-space
 transport needs no kernel patch, which is precisely the deployment wedge.
 
 ## Layer 5 — Edge: `xdp-edge`

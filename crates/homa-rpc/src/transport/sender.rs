@@ -100,7 +100,7 @@ impl SenderCore {
         let key = (src, pkt.msg_id);
         let new_limit = (pkt.offset as usize).min(self.out.get(&key).map_or(0, |m| m.data.len()));
         let Some(msg) = self.out.get(&key) else {
-            return;
+            return; // 消息已回收（linger 过期），忽略迟到的 GRANT
         };
         if new_limit <= msg.granted_to {
             return; // 重复/过期的累计授权
