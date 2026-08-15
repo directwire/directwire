@@ -16,16 +16,19 @@ Today's agents are chained to central brokers and cloud relays. Directwire gives
 
 ## Status
 
-**Research preview (v0.1).** The protocol is under active design; the reference implementation is a clean-room architecture-validation baseline. SemVer will not be meaningful until v1.
+**Research preview (v0.2).** The protocol is under active design; the reference implementation is a clean-room architecture-validation baseline, now covering the full five-layer stack (see [the architecture whitepaper](docs/architecture-whitepaper.md)). SemVer will not be meaningful until v1.
 
 ## Workspace
 
-Two crates:
+Five crates, one wire — from the cryptographic handshake up to the edge gateway:
 
-| crate | role |
-|---|---|
-| [`gm-pq-stack`](crates/gm-pq-stack) | Hybrid national-crypto + post-quantum transport: SM2 + ML-KEM-768 hybrid handshake, SM4-GCM sessions, replay protection, cookie anti-DoS, 0-RTT resumption |
-| [`p2p-mesh`](crates/p2p-mesh) | iroh-style public-key mesh networking: relay brokering, NAT hole punching, QUIC simultaneous-open direct, adaptive path selection |
+| crate | layer | role |
+|---|---|---|
+| [`gm-pq-stack`](crates/gm-pq-stack) | Security | Hybrid national-crypto + post-quantum secure channel: SM2 + ML-KEM-768 handshake, SM4-GCM sessions, replay protection, cookie anti-DoS, 0-RTT resumption |
+| [`p2p-mesh`](crates/p2p-mesh) | Connectivity | iroh-style public-key mesh networking: relay brokering, NAT hole punching, QUIC simultaneous-open direct, adaptive path selection, MCP server |
+| [`moq-live`](crates/moq-live) | Media | MoQ-lite low-latency live transport: publish/subscribe, stream-per-group, priority-aware drop, catch-up |
+| [`homa-rpc`](crates/homa-rpc) | RPC | Homa-style message-oriented transport over UDP + idempotent RPC: SRPT grant scheduling, 8-level QoS |
+| [`xdp-edge`](crates/xdp-edge) | Edge | eBPF/XDP edge data plane: per-source rate limiting, SYN-flood detection, Maglev L4 load balancing, IPIP forwarding |
 
 ## Quickstart
 
@@ -60,6 +63,7 @@ flowchart LR
 
 - [Protocol specification](SPEC.md)
 - [Protocol deep-dive: design rationale](docs/protocol-deep-dive.md)
+- [Architecture whitepaper: the five-layer stack](docs/architecture-whitepaper.md)
 - [Security considerations](SPEC.md#security-considerations)
 - [p2p-mesh README](crates/p2p-mesh/README.md) · [moq-live README](crates/moq-live/README.md) · [homa-rpc README](crates/homa-rpc/README.md) · [xdp-edge README](crates/xdp-edge/README.md)
 - [gm-pq-stack README](crates/gm-pq-stack/README.md)
