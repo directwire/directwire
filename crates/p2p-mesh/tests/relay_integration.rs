@@ -154,18 +154,21 @@ async fn relay_brokers_candidate_exchange() {
     .await
     .unwrap();
     // update_addrs and punch_request travel separate TCP connections, so the
-    // relay may broker the stale list first; wait for the one carrying a_cand2.
+    // relay may broker the stale list first. If a stale Exchange arrives, the
+    // relay won't re-send on its own — re-request the punch so it brokers
+    // against the updated list.
     let eb2 = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             match cb.recv().await {
                 Some(Frame::Exchange { cands, .. }) if cands == a_cand2 => break cands,
+                Some(Frame::Exchange { .. }) => cb.punch_request(ida).await.unwrap(),
                 Some(_) => continue,
                 None => panic!("connection closed"),
             }
         }
     })
     .await
-    .unwrap();
+    .expect("relay never brokered the updated candidate list");
     assert_eq!(eb2, a_cand2);
     assert!(!ea2.is_empty());
 }

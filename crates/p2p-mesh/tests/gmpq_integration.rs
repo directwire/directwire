@@ -13,7 +13,10 @@ use p2p_mesh::path::PathKind;
 use p2p_mesh::relay::RelayServer;
 use p2p_mesh::NodeIdentity;
 
-const T: Duration = Duration::from_secs(15);
+// Generous budget: the GM-PQ fallback has a fixed 3s handshake timeout, and
+// these tests run under heavy parallel load in CI (oversubscribed runners make
+// timer jitter much worse than on a dev machine).
+const T: Duration = Duration::from_secs(30);
 
 async fn spawn_relay() -> SocketAddr {
     let server = RelayServer::bind(SocketAddr::from(([127, 0, 0, 1], 0)))
