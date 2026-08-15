@@ -1,0 +1,6 @@
+[workspace]
+resolver = "2"
+members = ["crates/gm-pq-stack", "crates/p2p-mesh"]
+
+[profile.release]
+opt-level = 3
