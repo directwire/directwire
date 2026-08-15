@@ -3,7 +3,7 @@ name = "moq-live"
 version = "0.1.0"
 edition = "2024"
 description = "MoQ-lite MVP：基于 Rust + quinn 的 Media over QUIC 低延迟直播传输骨架"
-license = "Apache-2.0"
+license = "Apache-2.0 OR MulanPSL-2.0"
 
 [features]
 default = []

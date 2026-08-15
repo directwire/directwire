@@ -3,7 +3,7 @@ name = "p2p-mesh"
 version = "0.1.0"
 edition = "2021"
 description = "iroh-style public-key mesh networking MVP: dial by public key, not by IP; QUIC hole-punch direct + encrypted relay fallback"
-license = "Apache-2.0"
+license = "Apache-2.0 OR MulanPSL-2.0"
 
 [dependencies]
 # Async runtime & networking

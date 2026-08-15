@@ -23,4 +23,11 @@ Thanks for taking the time to contribute.
 
 ## Code of conduct
 
-Behave like you're building infrastructure other people will rely on. No gatekeeping, no hype, no shortcuts on security.
+All participants must follow the [Code of Conduct](CODE_OF_CONDUCT.md). In
+short: behave like you're building infrastructure other people will rely on.
+No gatekeeping, no hype, no shortcuts on security.
+
+## Governance
+
+See [GOVERNANCE.md](GOVERNANCE.md) for how the project is run — including the
+wire-format authority rule, which is the most important governance constraint.

@@ -3,7 +3,10 @@ resolver = "2"
 members = ["crates/gm-pq-stack", "crates/p2p-mesh", "crates/moq-live", "crates/homa-rpc", "crates/xdp-edge"]
 
 [workspace.package]
-license = "Apache-2.0"
+# Dual-licensed: choose Apache-2.0 or MulanPSL-2.0. Both are OSI-approved
+# permissive licenses, mutually compatible; MulanPSL v2 is the Chinese
+# national-crypto ecosystem's license of record (OpenEuler/OpenGauss family).
+license = "Apache-2.0 OR MulanPSL-2.0"
 version = "0.1.0"
 
 [profile.release]

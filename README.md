@@ -16,26 +16,21 @@ Today's agents are chained to central brokers and cloud relays. Directwire gives
 
 ## Status
 
-**Research preview (v0.2).** The protocol is under active design; the reference implementation is a clean-room architecture-validation baseline. SemVer will not be meaningful until v1.
+**Research preview (v0.1).** The protocol is under active design; the reference implementation is a clean-room architecture-validation baseline. SemVer will not be meaningful until v1.
 
 ## Workspace
 
-Five crates — one security foundation, four planes built on it:
+Two crates:
 
-| crate | plane | role |
-|---|---|---|
-| [`gm-pq-stack`](crates/gm-pq-stack) | security | Hybrid national-crypto + post-quantum transport: SM2 + ML-KEM-768 hybrid handshake, SM4-GCM sessions, replay protection, cookie anti-DoS, 0-RTT resumption |
-| [`p2p-mesh`](crates/p2p-mesh) | connectivity | iroh-style public-key mesh networking: relay brokering, NAT hole punching, QUIC simultaneous-open direct, adaptive path selection (RTT + loss), multi-peer |
-| [`moq-live`](crates/moq-live) | media | MoQ-lite pub/sub media transport: stream-per-group, relay-as-cache with GOP catch-up, priority drop queue, full control plane |
-| [`homa-rpc`](crates/homa-rpc) | rpc | Homa-style message-oriented RPC: receiver-driven GRANT scheduling (SRPT), 8-level QoS, unscheduled first-RTT window — short-RPC latency vs TCP baseline |
-| [`xdp-edge`](crates/xdp-edge) | edge | eBPF/XDP gateway data plane: Maglev LB, DDoS fast-path drops, conntrack, plus a userspace reference simulator (~5 Mpps single-thread) and control-plane agent |
-
-`moq-live` and `p2p-mesh` can layer the `gm-pq` feature on top of `gm-pq-stack` for a national-crypto + post-quantum session above QUIC/TCP.
+| crate | role |
+|---|---|
+| [`gm-pq-stack`](crates/gm-pq-stack) | Hybrid national-crypto + post-quantum transport: SM2 + ML-KEM-768 hybrid handshake, SM4-GCM sessions, replay protection, cookie anti-DoS, 0-RTT resumption |
+| [`p2p-mesh`](crates/p2p-mesh) | iroh-style public-key mesh networking: relay brokering, NAT hole punching, QUIC simultaneous-open direct, adaptive path selection |
 
 ## Quickstart
 
 ```bash
-# run all workspace tests (all crates)
+# run all workspace tests (both crates)
 cargo test --workspace --all-features
 
 # three-process mesh demo (see crates/p2p-mesh/README.md)
@@ -75,4 +70,11 @@ flowchart LR
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE).
+Dual-licensed under **Apache-2.0** or **MulanPSL-2.0** — you may choose either.
+Both are OSI-approved permissive licenses and mutually compatible; Mulan PSL
+v2 is the license of record for the Chinese national-crypto ecosystem
+(OpenEuler / OpenGauss family), keeping the hybrid SM2 + ML-KEM-768 stack
+integratable into domestic commercial-cryptography deployments.
+
+- [LICENSE](LICENSE) — Apache License 2.0
+- [LICENSE-MULANPSL-2.0](LICENSE-MULANPSL-2.0) — 木兰宽松许可证 第2版 (Mulan PSL v2)

@@ -17,6 +17,29 @@
    - Comply with the 《Commercial Cryptography Administration Regulations》: the development, sale, and use of commercial crypto products are regulated by the national cryptography administration.
 2. The hybrid design is a **transitional compatibility strategy**: SM2 guarantees present-day compliance; ML-KEM-768 provides forward protection under the Harvest-Now-Decrypt-Later threat. Once the domestic PQC national standard is published, the PQ component can be swapped in place under the `kem` trait abstraction (see ROADMAP).
 
+## Standards alignment
+
+The SM2 + ML-KEM-768 combination is **not an ad-hoc invention** — it aligns with the
+**SM2MLKEM768** hybrid key-exchange registered in the IANA TLS NamedGroup registry
+(**id 4590**, proposed by the Chinese cryptographic community, already implemented in
+Alibaba Tongsuo and adopted by the ZeroTrust browser). The stack's `sm2+ml-kem-768` suite
+string follows that same combined-algorithm semantics.
+
+Where this stack differs from a TLS-KEM library like Tongsuo is **layer position**:
+
+| | Tongsuo / TLS stacks | this stack (`gm-pq-stack`) |
+|---|---|---|
+| hybrid KEM | SM2MLKEM768 (IANA 4590) | same SM2MLKEM768 combination |
+| transport | TLS 1.3 handshake carries the KEM | the hybrid handshake **is** the transport |
+| beyond the KEM | TLS record layer (AES-GCM etc.) | SM4-GCM sessions + replay window + cookie anti-DoS + PSK/0-RTT resumption |
+| scope | a KEM primitive inside a TLS stack | the complete end-to-end secure-channel layer |
+
+The value the ecosystem gets from this stack is that a deployment can take the *whole*
+secure channel (compliant SM2 authentication + PQ forward protection + SM4-GCM + DoS
+protection + resumption) in one `kem`-trait-swappable package — the PQ leg swaps in place
+to the national algorithm family once the 2027–2029 GM/T standards land, with no handshake
+or session-layer changes.
+
 ## Market-window data
 
 | metric | value | meaning |

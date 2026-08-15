@@ -3,7 +3,7 @@ name = "gm-pq-stack"
 version = "0.1.0"
 edition = "2024"
 description = "SM2 + ML-KEM-768 hybrid KEM handshake and secure transport stack (national-crypto compliance + post-quantum readiness)"
-license = "Apache-2.0"
+license = "Apache-2.0 OR MulanPSL-2.0"
 
 [dependencies]
 # National-crypto algorithm family: SM2 / SM3 / SM4-GCM (pure Rust, per GB/T standards)
