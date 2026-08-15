@@ -59,10 +59,12 @@ flowchart LR
 ## Docs
 
 - [Protocol specification](SPEC.md)
+- [Protocol deep-dive: design rationale](docs/protocol-deep-dive.md)
 - [Security considerations](SPEC.md#security-considerations)
 - [p2p-mesh README](crates/p2p-mesh/README.md)
 - [gm-pq-stack README](crates/gm-pq-stack/README.md)
 - [Integrating the crypto stack](crates/gm-pq-stack/docs/INTEGRATION.md)
+- [Security policy](SECURITY.md)
 - [Contributing](CONTRIBUTING.md)
 
 ## License

@@ -16,6 +16,8 @@ pub mod crypto;
 pub mod gmpq;
 pub mod holepunch;
 pub mod identity;
+#[cfg(feature = "mcp")]
+pub mod mcp;
 pub mod node;
 pub mod path;
 pub mod proto;

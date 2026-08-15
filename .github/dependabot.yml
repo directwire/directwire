@@ -1,0 +1,19 @@
+# Keep the dependency tree audited automatically. Supply-chain hygiene is a
+# stated project value (see CONTRIBUTING.md ground rules).
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: wednesday
+      time: "03:17"
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    labels:
+      - dependencies

@@ -2,5 +2,9 @@
 resolver = "2"
 members = ["crates/gm-pq-stack", "crates/p2p-mesh"]
 
+[workspace.package]
+license = "Apache-2.0"
+version = "0.1.0"
+
 [profile.release]
 opt-level = 3

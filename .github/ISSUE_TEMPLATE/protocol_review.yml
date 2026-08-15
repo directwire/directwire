@@ -1,0 +1,34 @@
+name: Protocol review / adversarial analysis
+description: A finding about the protocol design, wire format, or security model — not necessarily a code bug.
+title: "[protocol] "
+labels: [protocol-review]
+body:
+  - type: markdown
+    attributes:
+      value: "**Security issue?** Use the private [Security Advisories](https://github.com/directwire/directwire/security/advisories) form instead."
+  - type: textarea
+    id: claim
+    attributes:
+      label: The claim
+      description: What property are you analyzing (e.g. confidentiality, authenticity, replay protection, relay blindspot)?
+    validations:
+      required: true
+  - type: textarea
+    id: scenario
+    attributes:
+      label: Attack scenario
+      description: Attacker model, capabilities, and the concrete sequence of messages/state.
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: What the attack breaks, and the practical conditions required to mount it.
+    validations:
+      required: true
+  - type: textarea
+    id: fix
+    attributes:
+      label: Proposed mitigation
+      description: Wire-format change, state-machine change, or documentation clarification. Note if it is a breaking change.

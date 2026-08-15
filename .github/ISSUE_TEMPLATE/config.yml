@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/directwire/directwire/security/advisories
+    about: Report a security issue privately — never open a public issue for security problems. See SECURITY.md.
+  - name: Spec discussion
+    url: https://github.com/directwire/directwire/discussions
+    about: Questions about the protocol design, wire format, or roadmap belong in Discussions.
