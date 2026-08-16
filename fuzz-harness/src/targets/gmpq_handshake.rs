@@ -90,13 +90,13 @@ pub fn corpus() -> Vec<Vec<u8>> {
     vec![
         Vec::new(),
         vec![0u8],
-        vec![3u8, 0, 0],          // golden 互认证（第一对密钥）
-        vec![4u8, 1, 2],          // PSK 会话恢复
-        vec![5u8, 2, 1],          // 0-RTT early data
-        vec![6u8, 0, 0],          // cookie 挑战
-        vec![7u8, 3, 3],          // PSK msg3 深解析（短体，过闸门）
-        p2,                        // phase 2 + 合法 msg3（真正 decap）
-        p7,                        // phase 7 + 合法 msg3（真正 decap）
+        vec![3u8, 0, 0], // golden 互认证（第一对密钥）
+        vec![4u8, 1, 2], // PSK 会话恢复
+        vec![5u8, 2, 1], // 0-RTT early data
+        vec![6u8, 0, 0], // cookie 挑战
+        vec![7u8, 3, 3], // PSK msg3 深解析（短体，过闸门）
+        p2,              // phase 2 + 合法 msg3（真正 decap）
+        p7,              // phase 7 + 合法 msg3（真正 decap）
         vec![0xabu8; 8],
         vec![0xffu8; 32],
         vec![0u8; 64],
@@ -162,9 +162,11 @@ pub fn fuzz(data: &[u8]) {
         // 4: PSK 会话恢复（双方同 PSK 的完整握手）——session_id 仍须一致
         4 => {
             let anchor = AllowAllAnchor;
-            let mut init: Initiator<DefaultHybrid> = Initiator::new_with_psk(init_sk, init_pk, &PSK);
+            let mut init: Initiator<DefaultHybrid> =
+                Initiator::new_with_psk(init_sk, init_pk, &PSK);
             let m1 = init.write_msg1(&mut rng).unwrap();
-            let mut resp: Responder<DefaultHybrid> = Responder::new_with_psk(resp_sk, resp_pk, &PSK);
+            let mut resp: Responder<DefaultHybrid> =
+                Responder::new_with_psk(resp_sk, resp_pk, &PSK);
             resp.read_msg1(&m1).unwrap();
             let m2 = resp.write_msg2(&mut rng).unwrap();
             init.read_msg2(&m2).unwrap();
@@ -178,13 +180,15 @@ pub fn fuzz(data: &[u8]) {
         }
         // 5: 0-RTT early data——fuzz 尾巴加密后必须原样还原（单跳 AEAD 往返不变式）
         5 => {
-            let mut init: Initiator<DefaultHybrid> = Initiator::new_with_psk(init_sk, init_pk, &PSK);
+            let mut init: Initiator<DefaultHybrid> =
+                Initiator::new_with_psk(init_sk, init_pk, &PSK);
             let m1 = init.write_msg1(&mut rng).unwrap();
             // 密封任意明文（长度随 fuzz 输入有界）都必须成功
             let sealed = init
                 .seal_early_data(body)
                 .expect("seal_early_data 对任意明文必须成功");
-            let mut resp: Responder<DefaultHybrid> = Responder::new_with_psk(resp_sk, resp_pk, &PSK);
+            let mut resp: Responder<DefaultHybrid> =
+                Responder::new_with_psk(resp_sk, resp_pk, &PSK);
             resp.read_msg1(&m1).unwrap();
             let opened = resp
                 .open_early_data(&sealed)
@@ -213,9 +217,11 @@ pub fn fuzz(data: &[u8]) {
         }
         // 7: PSK 模式 msg3 深解析（合法 PSK msg1/msg2 后喂 fuzz 当 msg3）
         _ => {
-            let mut init: Initiator<DefaultHybrid> = Initiator::new_with_psk(init_sk, init_pk, &PSK);
+            let mut init: Initiator<DefaultHybrid> =
+                Initiator::new_with_psk(init_sk, init_pk, &PSK);
             let m1 = init.write_msg1(&mut rng).unwrap();
-            let mut resp: Responder<DefaultHybrid> = Responder::new_with_psk(resp_sk, resp_pk, &PSK);
+            let mut resp: Responder<DefaultHybrid> =
+                Responder::new_with_psk(resp_sk, resp_pk, &PSK);
             resp.read_msg1(&m1).unwrap();
             let _ = resp.write_msg2(&mut rng).unwrap();
             let _ = resp.read_msg3(body);

@@ -15,13 +15,18 @@
 //! （逐次指定段长，spike 已在 loopback 实测生效）；Linux 的 `UDP_SEGMENT`
 //! 是 setsockopt 全局选项，此路径待补，当前非 Windows 逐包回退。
 
-use std::io::IoSlice;
 use std::net::SocketAddr;
 
-use socket2::{MsgHdr, SockAddr, SockRef};
-
+// send_segment（唯一使用这些导入的函数）是 Windows-only：`WSASendMsg`
+// + `UDP_SEND_MSG_SIZE` control 消息。Linux 构建时这些导入必须不出现，
+// 否则 `-D warnings`（CI 的 RUSTFLAGS）会把「未使用导入」打成硬错误。
+#[cfg(windows)]
 use super::Inner;
 use super::packet::{HEADER_LEN, PacketType};
+#[cfg(windows)]
+use socket2::{MsgHdr, SockAddr, SockRef};
+#[cfg(windows)]
+use std::io::IoSlice;
 
 /// GSO 段缓冲上限：Windows UDP 数据报上限 ~64KB。
 /// 满包 1222B × 53 = 64766 ≤ 65536（实际按 mss 动态算）

@@ -23,7 +23,10 @@ fn bench<F: FnMut()>(name: &str, ms: u64, mut f: F) {
 }
 
 fn main() {
-    let ms: u64 = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(2000);
+    let ms: u64 = std::env::args()
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(2000);
     let gmpq = targets::by_name("gmpq_handshake").unwrap();
     let f = gmpq.f;
 
