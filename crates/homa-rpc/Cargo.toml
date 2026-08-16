@@ -2,7 +2,12 @@
 name = "homa-rpc"
 version = "0.1.0"
 edition = "2024"
+description = "Message-oriented Homa-style transport over UDP + idempotent RPC: receiver-driven grant scheduling, 8-level QoS, at-least-once delivery"
 license = "Apache-2.0 OR MulanPSL-2.0"
+repository.workspace = true
+homepage.workspace = true
+keywords = ["rpc", "homa", "udp", "transport", "low-latency"]
+categories = ["network-programming"]
 
 [dependencies]
 ahash = "0.8"

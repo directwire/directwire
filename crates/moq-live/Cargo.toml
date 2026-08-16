@@ -2,8 +2,12 @@
 name = "moq-live"
 version = "0.1.0"
 edition = "2024"
-description = "MoQ-lite MVP：基于 Rust + quinn 的 Media over QUIC 低延迟直播传输骨架"
+description = "MoQ-lite: low-latency live streaming over Media-over-QUIC (MoQ) — a publish/subscribe transport skeleton in pure Rust"
 license = "Apache-2.0 OR MulanPSL-2.0"
+repository.workspace = true
+homepage.workspace = true
+keywords = ["quic", "streaming", "moq", "low-latency", "media"]
+categories = ["multimedia"]
 
 [features]
 default = []
@@ -28,7 +32,7 @@ tokio = { version = "1", features = [
 # 零拷贝字节缓冲
 bytes = "1"
 # 国密+PQ 混合握手栈（可选，feature gm-pq 开启）
-gm-pq-stack = { path = "../gm-pq-stack", optional = true }
+gm-pq-stack = { version = "0.1.0", path = "../gm-pq-stack", optional = true }
 
 [dev-dependencies]
 # 仅示例/测试用：自签名证书生成（ring 后端）

@@ -2,6 +2,11 @@
 name = "xdp-edge"
 version = "0.1.0"
 edition = "2024"
+description = "eBPF/XDP edge data plane: per-source rate limiting, SYN-flood detection, Maglev L4 load balancing, IPIP forwarding (Rust control plane + kernel program)"
 license = "Apache-2.0 OR MulanPSL-2.0"
+repository.workspace = true
+homepage.workspace = true
+keywords = ["xdp", "bpf", "ebpf", "load-balancing", "networking"]
+categories = ["network-programming"]
 
 [dependencies]

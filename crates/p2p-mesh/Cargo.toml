@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 description = "iroh-style public-key mesh networking MVP: dial by public key, not by IP; QUIC hole-punch direct + encrypted relay fallback"
 license = "Apache-2.0 OR MulanPSL-2.0"
+repository.workspace = true
+homepage.workspace = true
+keywords = ["p2p", "networking", "quic", "hole-punching", "overlay"]
+categories = ["network-programming"]
 
 [dependencies]
 # Async runtime & networking
@@ -22,7 +26,7 @@ quinn = { version = "0.11", default-features = false, features = ["rustls-ring",
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "logging", "tls12"] }
 rcgen = { version = "0.13", default-features = false, features = ["ring"] }
 # National-crypto + post-quantum hybrid handshake (SM2+ML-KEM-768 / SM4-GCM), optional feature
-gm-pq-stack = { path = "../gm-pq-stack", optional = true }
+gm-pq-stack = { version = "0.1.0", path = "../gm-pq-stack", optional = true }
 # MCP stdio server (zero-framework: newline-delimited JSON-RPC 2.0 subset), optional feature
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }

@@ -72,6 +72,53 @@ flowchart LR
 - [Security policy](SECURITY.md)
 - [Contributing](CONTRIBUTING.md) · [Code of Conduct](CODE_OF_CONDUCT.md)
 
+## FAQ
+
+**"How is Directwire different from iroh?"**
+
+Both dial peers by public key — the difference is the layer. iroh is a
+connectivity library: identity + relay + hole punching + QUIC. Directwire is a
+five-layer stack built on the same idea, where the connectivity layer
+(`p2p-mesh`) is deliberately an MVP whose job is to prove "identity is the
+address" end-to-end. The other four crates — `gm-pq-stack` (national-crypto +
+post-quantum hybrid secure channel), `moq-live` (Media over QUIC live
+transport), `homa-rpc` (Homa-style message-oriented RPC over UDP),
+`xdp-edge` (eBPF/XDP edge data plane for the relay infrastructure) — are the
+range iroh does not ship. The upper layers do not care which mesh library sits
+under them; if all you need is a P2P connectivity library, use iroh. Directwire
+is for teams that want the whole agent-native transport stack with the
+compliance + post-quantum position built into the wire.
+
+**"Why not use 铜锁 (Tongsuo)?"**
+
+Tongsuo is a TLS stack that carries the same hybrid KEM — SM2MLKEM768
+(IANA NamedGroup 4590) — as a TLS 1.3 extension point. Directwire uses the
+*same algorithm combination at a different layer*: the hybrid handshake **is**
+the transport, not a handshake inside a TLS record layer. Above the KEM, the
+session plane is SM4-GCM + replay window + stateless cookie anti-DoS +
+PSK/0-RTT resumption — a complete end-to-end secure channel that upper layers
+consume as *the session*, not as a TLS extension. The `kem` trait makes the PQ
+leg swappable in place: when the domestic PQC national standard lands
+(expected 2027–2029), ML-KEM-768 is replaced under the same trait with no
+handshake or session changes. And it is dual-licensed Apache-2.0 OR
+MulanPSL-2.0, so the whole stack stays integratable into domestic
+commercial-cryptography deployments. Use Tongsuo when you need a TLS library;
+use `gm-pq-stack` when you want the compliance + quantum property in the wire
+of a *new* protocol. (Honest caveat: `gm-pq-stack` is a clean-room reference
+skeleton, not certified — see its README for the compliance red lines.)
+
+**"The P99 numbers are loopback, right?"**
+
+Yes — and the evidence matrix labels them as such. Numbers marked 🔁 loopback
+(e.g. Homa short-RPC P50 2.7× vs TCP) were measured on a single machine over
+loopback: no NIC queue disciplines, no real RTT. That is why v0.3 ships two
+more evidence levels: 🌐 net-sim (a deterministic relay proxy injecting real
+delay/loss over real sockets — 100 ms RTT 5.34×, +1% loss 4.66×, 5% loss
+0 failures) and 🐧 real kernel (xdp-edge's XDP_TX loopback on a real kernel in
+CI). The honest boundary: multi-machine, real-NIC measurements are still a
+TODO, and we say so. Every number in the matrix carries its measuring device;
+none is a slide.
+
 ## License
 
 Dual-licensed under **Apache-2.0** or **MulanPSL-2.0** — you may choose either.

@@ -17,6 +17,9 @@ members = [
 # national-crypto ecosystem's license of record (OpenEuler/OpenGauss family).
 license = "Apache-2.0 OR MulanPSL-2.0"
 version = "0.1.0"
+# crates.io metadata, inherited by every workspace member
+repository = "https://github.com/directwire/directwire"
+homepage = "https://github.com/directwire/directwire"
 
 [profile.release]
 opt-level = 3
