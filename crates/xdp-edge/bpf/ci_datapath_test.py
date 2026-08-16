@@ -122,8 +122,9 @@ def send_raw(iface, frame):
         s.send(frame)
 
 
-def sniff_ipip(iface, timeout_s, want_daddr, inject=None):
+def sniff_ipip(iface, timeout_s, want_daddr, inject=None, seen=None):
     """在 iface 上收原始帧，找外层 IPIP（proto=4）且 daddr 匹配的，返回帧或 None。
+    seen 提供时，把未匹配的前几帧存进去（诊断用）。
 
     必须先绑定 AF_PACKET 再注入：veth 上 XDP_TX 在 send_raw 的同一 syscall 内
     同步完成，先发后绑会让封装帧落在『无 socket 接收』的收包路径上被丢弃，
@@ -141,16 +142,64 @@ def sniff_ipip(iface, timeout_s, want_daddr, inject=None):
             except socket.timeout:
                 continue
             if len(frame) < 14 + 20:
+                if seen is not None and len(seen) < 3:
+                    seen.append(frame)
                 continue
             eth_type = struct.unpack("!H", frame[12:14])[0]
             if eth_type != 0x0800:
+                if seen is not None and len(seen) < 3:
+                    seen.append(frame)
                 continue
             iph = frame[14:34]
             proto = iph[9]
             daddr = socket.inet_ntoa(iph[16:20])
             if proto == 4 and daddr == want_daddr:
                 return frame
+            if seen is not None and len(seen) < 3:
+                seen.append(frame)
     return None
+
+
+def dump_stats():
+    """把 stats map（PERCPU_ARRAY，u64 计数）解析成 {下标: 总数}。
+
+    兼容 bpftool v7.7.0：key/value 都以十六进制字节数组形态输出——key=ST_FORWARD
+    显示为 ["0x00","0x00","0x00","0x00"]（LE u32），cpu 计数值显示为
+    ["0x01","0x00",...]（LE u64）；也兼容旧版扁平数字形态。
+    """
+    import json
+
+    def as_int(x):
+        if isinstance(x, (int, float)):
+            return int(x)
+        if isinstance(x, str):
+            try:
+                return int(x, 16) if x.lower().startswith("0x") else int(x)
+            except ValueError:
+                return 0
+        if isinstance(x, list):  # bpftool v7: ["0x01","0x00",...] LE 字节
+            try:
+                return int.from_bytes(bytes(int(h, 16) for h in x), "little")
+            except (TypeError, ValueError):
+                return 0
+        return 0
+
+    r = sh("bpftool map dump id %d -j" % bpf_map_id("stats"), check=False)
+    out = {}
+    for entry in json.loads(r.stdout):
+        k = as_int(entry.get("key"))
+        arr = entry.get("values") if "values" in entry else entry.get("value")
+        if not isinstance(arr, list):
+            out[k] = 0
+            continue
+        total = 0
+        for x in arr:
+            if isinstance(x, dict):  # 逐 CPU 对象形态
+                total += as_int(x.get("value"))
+            else:                     # 扁平 per-CPU 数字形态
+                total += as_int(x)
+        out[k] = total
+    return out
 
 
 def setup():
@@ -214,15 +263,24 @@ def test_forward():
     log("测试①: 连接跟踪命中 → IPIP 封装 XDP_TX 转发")
     v0_mac, v1_mac = mac_of(VETH0), mac_of(VETH1)
     frame = build_syn_pkt(v1_mac, v0_mac, "10.0.0.2", "10.0.0.1", SPORT, DPORT)
+    seen = []
     out = sniff_ipip(VETH1, timeout_s=2.0, want_daddr=BACKEND_IP,
-                     inject=lambda: send_raw(VETH1, frame))
+                     inject=lambda: send_raw(VETH1, frame), seen=seen)
     if out is None:
-        # 诊断：转发的判定落在 stats 里。ST_FORWARD>0 = 程序跑了 encap 但帧没回
-        # 来（投递/嗅探问题）；ST_FORWARD==0 = 程序在限速/SYN/配置层就拦截或没跑。
-        # 匿名仓库日志 403，唯一可见通道是 ::error:: 注解，故把 raw dump 打上去。
+        # 诊断三件套，全部打到 ::error:: 注解（匿名仓库日志 403，这是唯一可见通道）：
+        #   1. 嗅探期内实际收到的帧（判断是 XDP_DROP 还是帧回来了但形状不对）
+        #   2. bpftool net show（XDP attach 模式：xdpdrv 原生 / xdpgeneric 通用）
+        #   3. 全部 stats 计数（ST_FORWARD>0 且帧没回来 = encap 内被 drop）
+        import json as _json
+        for i, f in enumerate(seen):
+            eth = f[12:14].hex() if len(f) >= 14 else "?"
+            iph = f[14:34].hex() if len(f) >= 34 else ""
+            print(f"::error::seen frame {i}: len={len(f)} ethtype={eth} ip_hdr={iph}",
+                  file=sys.stderr)
+        for line in sh("bpftool net show 2>&1 | head -12", check=False).stdout.splitlines():
+            print(f"::error::net: {line}", file=sys.stderr)
         try:
-            r = sh("bpftool map dump id %d -j" % bpf_map_id("stats"), check=False)
-            print(f"::error::stats raw dump: {r.stdout[:800]}", file=sys.stderr)
+            print(f"::error::stats: {_json.dumps(dump_stats())}", file=sys.stderr)
         except Exception as e:  # 诊断失败不影响主断言
             print(f"::error::stats dump failed: {e}", file=sys.stderr)
         raise SystemExit("FAIL: 没有收到 IPIP 封装包（转发路径未生效）")
@@ -253,41 +311,14 @@ def test_rate_drop():
     if out is not None:
         raise SystemExit("FAIL: 限速归零后仍收到转发包")
 
-    # 校验 ST_DROP_RATE（stats 下标 1）已增长。本 map 是单 u64 值的 PERCPU_ARRAY，
-    # 每条记录对应当前 ARRAY 下标；bpftool 的 -j 形态跨版本不一，这里兼容两种：
-    #   A. "value": [cpu0, cpu1, ...]         每 CPU 一个数（旧版扁平）
-    #   B. "values": [{"cpu":0,"value":0},...] BTF 逐 CPU 对象（v7 当前）
-    # 只累加 key==1（ST_DROP_RATE）槽位的 per-CPU 计数。
-    r = sh("bpftool map dump id %d -j" % bpf_map_id("stats"))
-    import json
-    stats = json.loads(r.stdout)
-    drop_rate = 0
-    for entry in stats:
-        key = entry.get("key")
-        if key != 1 and str(key) != "1":
-            continue
-        arr = entry.get("values") if "values" in entry else entry.get("value")
-        if not isinstance(arr, list):
-            continue
-        for x in arr:
-            if isinstance(x, dict):                 # 形态 B
-                v = x.get("value")
-                if isinstance(v, (int, float)):
-                    drop_rate += int(v)
-                elif isinstance(v, dict):           # BTF 结构形态兜底
-                    for k in v.values():
-                        try:
-                            drop_rate += int(k)
-                        except (TypeError, ValueError):
-                            pass
-            else:                                    # 形态 A
-                try:
-                    drop_rate += int(x)
-                except (TypeError, ValueError):
-                    pass
+    # 校验 ST_DROP_RATE（stats 下标 1）已增长。dump_stats() 兼容 v7.7.0 的
+    # 十六进制字节数组形态（key/value 都是 ["0x..",...] LE）与旧版扁平形态。
+    stats = dump_stats()
+    drop_rate = stats.get(1, 0)
     if drop_rate <= 0:
-        # CI 日志不可见（匿名仓库 403），把原始 JSON 打到 ::error:: 便于诊断
-        print(f"::error::raw stats dump for diagnosis:\n{r.stdout[:800]}",
+        # CI 日志不可见（匿名仓库 403），把完整计数打到 ::error:: 便于诊断
+        import json
+        print(f"::error::full stats for diagnosis:\n{json.dumps(stats)}",
               file=sys.stderr)
         raise SystemExit("FAIL: stats 未计 ST_DROP_RATE")
     log(f"OK: 包被丢弃，stats[ST_DROP_RATE]={drop_rate} ✓")
