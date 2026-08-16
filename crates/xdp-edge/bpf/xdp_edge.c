@@ -201,9 +201,12 @@ static __always_inline int ipip_encap_tx(struct xdp_md *ctx,
     if ((void *)(inner + 1) > data_end)
         return XDP_DROP;
 
-    /* adjust_head 后以太网头已由内核平移到新 data 起点（内容不变），
-     * 但目的 MAC 仍是上游交换机/路由器的，必须重写为后端 MAC：
-     * h_dest = 后端 dmac（控制面解析），h_source = 网关本机 MAC。 */
+    /* adjust_head(-20) 只把 data 前移 20B，原帧内容原地不动（内核
+     * bpf_xdp_adjust_head 仅做 xdp->data += offset，无 memmove）。新的
+     * data[0..14) 是未初始化的 headroom，并非被平移来的原以太网头——
+     * 原 eth 在 data+20，写外层 IP 时会把它覆盖掉。故这里在 data[0..14)
+     * 上**完整重建**以太网头：h_dest = 后端 dmac（控制面解析）、
+     * h_source = 网关本机 MAC、h_proto = ETH_P_IP（见下方代码）。 */
     if (be->dmac[0] == 0 && be->dmac[1] == 0 && be->dmac[2] == 0 &&
         be->dmac[3] == 0 && be->dmac[4] == 0 && be->dmac[5] == 0) {
         bump_stat(ST_DROP_NOMAC);
@@ -211,7 +214,10 @@ static __always_inline int ipip_encap_tx(struct xdp_md *ctx,
     }
     __builtin_memcpy(eth->h_dest, be->dmac, ETH_ALEN);
     __builtin_memcpy(eth->h_source, cfg->gateway_smac, ETH_ALEN);
-    /* eth->h_proto 保持 ETH_P_IP 不变 */
+    /* h_proto 必须显式写回：adjust_head 后 data[0..14) 是未初始化的 headroom
+     *（不是被平移来的原 eth 头，原帧内容原地不动），漏写则发出的帧以太网
+     * 类型是垃圾值，对端无法识别（CI 实测：收不到 IPIP 封装帧）。 */
+    eth->h_proto = bpf_htons(ETH_P_IP);
 
     /* 复制内层头字段构造外层头 */
     __u8 tos = inner->tos;

@@ -217,6 +217,14 @@ def test_forward():
     out = sniff_ipip(VETH1, timeout_s=2.0, want_daddr=BACKEND_IP,
                      inject=lambda: send_raw(VETH1, frame))
     if out is None:
+        # 诊断：转发的判定落在 stats 里。ST_FORWARD>0 = 程序跑了 encap 但帧没回
+        # 来（投递/嗅探问题）；ST_FORWARD==0 = 程序在限速/SYN/配置层就拦截或没跑。
+        # 匿名仓库日志 403，唯一可见通道是 ::error:: 注解，故把 raw dump 打上去。
+        try:
+            r = sh("bpftool map dump id %d -j" % bpf_map_id("stats"), check=False)
+            print(f"::error::stats raw dump: {r.stdout[:800]}", file=sys.stderr)
+        except Exception as e:  # 诊断失败不影响主断言
+            print(f"::error::stats dump failed: {e}", file=sys.stderr)
         raise SystemExit("FAIL: 没有收到 IPIP 封装包（转发路径未生效）")
     outer = out[14:34]
     saddr = socket.inet_ntoa(outer[12:16])
