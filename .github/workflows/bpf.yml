@@ -9,6 +9,9 @@ name: xdp-bpf
 #   4. 限速归零 → 断言新源被 XDP_DROP 且 stats 计数增长；
 #   5. ICMP ping PASS 路径旁证。
 # 测试脚本: crates/xdp-edge/bpf/ci_datapath_test.py
+#
+# 诊断约定：匿名仓库日志/产物 403、API 限流，唯一可见通道是 run 页面上的
+# ::error::/::notice:: 注解，故所有关键步骤都把实际错误文本打到注解里。
 
 on:
   push:
@@ -30,20 +33,14 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # apt failures surface as ::error:: annotations (visible on the run
-          # page without log access). linux-libc-dev supplies the UAPI headers
-          # at /usr/include/x86_64-linux-gnu that the Makefile's -I path needs;
-          # linux-headers-$(uname -r) is version-coupled and installs to
-          # /usr/src, not that path.
           if ! sudo apt-get update >/tmp/aptu.log 2>&1; then
             echo "::error::apt-get update failed"
             tail -6 /tmp/aptu.log | sed 's/^/::error::/' || true
             exit 1
           fi
-          # 说明：bpftool 在这版 runner 的 Ubuntu 上没有独立 apt 包
-          # （"no installation candidate"）；linux-tools-generic 又内核版本
-          # 耦合不稳。改为从官方 libbpf/bpftool 源码构建（确定性、无版本
-          # 耦合）。libelf-dev / zlib1g-dev 是 bpftool 的构建依赖。
+          # linux-libc-dev 提供 Makefile -I 路径所需的 UAPI 头；勿用
+          # linux-headers-$(uname -r)（版本耦合且装在 /usr/src）。
+          # libelf-dev / zlib1g-dev 是 bpftool 源码构建的依赖。
           for p in clang llvm libbpf-dev iproute2 linux-libc-dev libelf-dev zlib1g-dev; do
             if ! sudo apt-get install -y --no-install-recommends "$p" >/tmp/apt.log 2>&1; then
               echo "::error::apt install failed for package: $p"
@@ -51,8 +48,13 @@ jobs:
               exit 1
             fi
           done
-          if ! command -v bpftool >/dev/null 2>&1; then
-            echo "::notice::building bpftool from source (libbpf/bpftool v7.7.0)"
+          # bpftool 判定不能靠 command -v：runner 镜像预装了一个
+          # linux-tools 包装脚本（/usr/sbin/bpftool），版本相关的真二进制
+          # 缺失，导致 `version` 直接失败。以 `bpftool version` 能否跑通为准；
+          # 不行就从官方 libbpf/bpftool v7.7.0 源码构建并装到 /usr/local/bin
+          # （PATH 优先于 /usr/sbin，天然压过坏包装）。
+          if ! bpftool version >/dev/null 2>&1; then
+            echo "::notice::no usable bpftool — building from source (libbpf/bpftool v7.7.0)"
             git clone --depth 1 --branch v7.7.0 https://github.com/libbpf/bpftool /tmp/bpftool >/dev/null 2>&1 || {
               echo "::error::bpftool clone failed"; exit 1; }
             git -C /tmp/bpftool submodule update --init --recursive >/dev/null 2>&1 || {
@@ -62,21 +64,47 @@ jobs:
               tail -10 /tmp/bpftool_build.log | sed 's/^/::error::/' || true
               exit 1; }
             sudo cp /tmp/bpftool/src/bpftool /usr/local/bin/bpftool
-            echo "::notice::bpftool installed (source build)"
           fi
-          bpftool version || echo "::error::bpftool still not runnable"
-          echo "::notice::deps installed: clang llvm libbpf-dev iproute2 linux-libc-dev libelf-dev zlib1g-dev + bpftool"
+          if ! bpftool version 2>/tmp/bpftool_ver.err; then
+            echo "::error::bpftool version still failing"
+            cat /tmp/bpftool_ver.err | sed 's/^/::error::/' || true
+            exit 1
+          fi
+          echo "clang: $(clang --version 2>/dev/null | head -1 || echo MISSING)"
+          echo "::notice::deps installed + bpftool runnable"
 
       - name: Compile xdp_edge.o (clang -target bpf, -Wall -Werror)
-        run: make -C crates/xdp-edge/bpf
+        run: |
+          rc=0
+          make -C crates/xdp-edge/bpf >/tmp/make.log 2>&1 || rc=$?
+          if [ $rc -ne 0 ]; then
+            echo "::error::make failed (exit $rc)"
+            tail -40 /tmp/make.log | sed 's/^/::error::/' || true
+            exit $rc
+          fi
+          echo "::notice::xdp_edge.o compiled clean (-Wall -Werror)"
 
       - name: Inspect object
         run: |
-          file crates/xdp-edge/bpf/xdp_edge.o
-          llvm-objdump -h crates/xdp-edge/bpf/xdp_edge.o
+          rc=0
+          { file crates/xdp-edge/bpf/xdp_edge.o; llvm-objdump -h crates/xdp-edge/bpf/xdp_edge.o; } >/tmp/inspect.log 2>&1 || rc=$?
+          if [ $rc -ne 0 ]; then
+            echo "::error::inspect failed (exit $rc)"
+            tail -20 /tmp/inspect.log | sed 's/^/::error::/' || true
+            exit $rc
+          fi
+          cat /tmp/inspect.log
 
       - name: Datapath test (attach + forward + rate-drop + stats)
-        run: sudo python3 crates/xdp-edge/bpf/ci_datapath_test.py
+        run: |
+          rc=0
+          sudo python3 crates/xdp-edge/bpf/ci_datapath_test.py >/tmp/dp.log 2>&1 || rc=$?
+          if [ $rc -ne 0 ]; then
+            echo "::error::datapath test failed (exit $rc)"
+            tail -40 /tmp/dp.log | sed 's/^/::error::/' || true
+            exit $rc
+          fi
+          echo "::notice::datapath test PASS"
 
       - name: Loaded program / attach info
         if: always()
