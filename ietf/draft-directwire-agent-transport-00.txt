@@ -1,0 +1,672 @@
+
+
+
+
+Network Working Group                                         Directwire
+Internet-Draft                  Directwire (anonymous contributor group)
+Intended status: Informational                            16 August 2026
+Expires: 17 February 2027
+
+
+    Directwire — An Identity-Centric Transport for Autonomous Agents
+                  draft-directwire-agent-transport-00
+
+Abstract
+
+   This document specifies _Directwire_, a transport and discovery
+   protocol in which a peer's cryptographic identity _is_ its address.
+   A Directwire node registers a set of candidate network endpoints with
+   a lightweight relay that brokers NAT traversal; once a direct path is
+   established, peers communicate peer-to-peer without any intermediary.
+   Session establishment supports a default ephemeral-DH handshake
+   (X25519 + Ed25519) and an optional hybrid national-crypto / post-
+   quantum channel (SM2 + ML-KEM-768 with an SM4-GCM data plane).
+   Messages carry monotonic sequence numbers with a sliding replay
+   window.  Path selection scores candidate paths by RTT and loss with
+   hysteresis.
+
+   Directwire is designed for autonomous agents: long-lived, unattended
+   programs that need a stable address that cannot be taken away by a
+   broker or a cloud relay, direct connectivity when NAT permits, and a
+   secure fallback when it does not.  This document is an informational
+   draft describing the protocol as implemented by the reference
+   implementation at version 0.2.
+
+About This Document
+
+   The protocol presented here follows the iroh peer-to-peer model for
+   candidate discovery and relay brokering [IROH].  This document was
+   produced using the xml2rfc version 3 vocabulary [RFC7991].
+
+Status of This Memo
+
+   This Internet-Draft is submitted in full conformance with the
+   provisions of BCP 78 and BCP 79.
+
+   Internet-Drafts are working documents of the Internet Engineering
+   Task Force (IETF).  Note that other groups may also distribute
+   working documents as Internet-Drafts.  The list of current Internet-
+   Drafts is at https://datatracker.ietf.org/drafts/current/.
+
+
+
+
+
+
+Directwire              Expires 17 February 2027                [Page 1]
+
+Internet-Draft            Directwire Transport               August 2026
+
+
+   Internet-Drafts are draft documents valid for a maximum of six months
+   and may be updated, replaced, or obsoleted by other documents at any
+   time.  It is inappropriate to use Internet-Drafts as reference
+   material or to cite them other than as "work in progress."
+
+   This Internet-Draft will expire on 17 February 2027.
+
+Copyright Notice
+
+   Copyright (c) 2026 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents (https://trustee.ietf.org/
+   license-info) in effect on the date of publication of this document.
+   Please review these documents carefully, as they describe your rights
+   and restrictions with respect to this document.  Code Components
+   extracted from this document must include Revised BSD License text as
+   described in Section 4.e of the Trust Legal Provisions and are
+   provided without warranty as described in the Revised BSD License.
+
+Table of Contents
+
+   1.  Introduction  . . . . . . . . . . . . . . . . . . . . . . . .   3
+   2.  Conventions and Terminology . . . . . . . . . . . . . . . . .   3
+     2.1.  Key Words . . . . . . . . . . . . . . . . . . . . . . . .   3
+     2.2.  Byte Order and Labels . . . . . . . . . . . . . . . . . .   4
+     2.3.  Terminology . . . . . . . . . . . . . . . . . . . . . . .   4
+   3.  Identity  . . . . . . . . . . . . . . . . . . . . . . . . . .   4
+   4.  Transport Overview  . . . . . . . . . . . . . . . . . . . . .   5
+   5.  Relay Control Frames  . . . . . . . . . . . . . . . . . . . .   5
+   6.  NAT Traversal (Hole Punching) . . . . . . . . . . . . . . . .   6
+   7.  Session Establishment . . . . . . . . . . . . . . . . . . . .   6
+     7.1.  Default (Relay Path) Handshake — X25519 + Ed25519 . . . .   6
+     7.2.  Optional GM-PQ Channel  . . . . . . . . . . . . . . . . .   7
+     7.3.  Direct Path — QUIC/TLS 1.3  . . . . . . . . . . . . . . .   8
+   8.  Message Framing . . . . . . . . . . . . . . . . . . . . . . .   8
+   9.  Path Selection  . . . . . . . . . . . . . . . . . . . . . . .   8
+   10. Security Considerations . . . . . . . . . . . . . . . . . . .   8
+   11. IANA Considerations . . . . . . . . . . . . . . . . . . . . .   9
+   12. Normative References  . . . . . . . . . . . . . . . . . . . .   9
+   13. Informative References  . . . . . . . . . . . . . . . . . . .  10
+   Appendix A.  v0.3 Candidate — Explicit DONE Message Replacing
+           Implicit ACK  . . . . . . . . . . . . . . . . . . . . . .  10
+     A.1.  Background: The Short-Message Loss Dead-Zone (v0.2
+           Problem)  . . . . . . . . . . . . . . . . . . . . . . . .  11
+     A.2.  Why a Candidate at All  . . . . . . . . . . . . . . . . .  11
+     A.3.  Candidate Design (v0.3) . . . . . . . . . . . . . . . . .  11
+
+
+
+Directwire              Expires 17 February 2027                [Page 2]
+
+Internet-Draft            Directwire Transport               August 2026
+
+
+     A.4.  Trade-Offs (Why v0.2 Shipped Without It)  . . . . . . . .  12
+   Author's Address  . . . . . . . . . . . . . . . . . . . . . . . .  12
+
+1.  Introduction
+
+   Autonomous agents today are chained to central brokers and cloud
+   relays.  Their "address" is a session in someone else's database:
+   revocable, rate-limited, and subject to the availability and policy
+   of the broker.  Directwire replaces that dependency with a
+   cryptographic identity that cannot be taken away.  Peers are dialed
+   _by public key, not by IP_.
+
+   The protocol has four design goals:
+
+   *  *Identity is the address.* A node is dialed by the 32-byte Ed25519
+      public key that is its Node ID.  No DNS, no registry, and no IP is
+      the primary identity.
+
+   *  *Encrypted by default, hybrid-hardened.* Sessions are encrypted.
+      The optional hybrid channel layers a national-crypto signature
+      scheme (SM2) and a post-quantum key-encapsulation mechanism (ML-
+      KEM-768) so that breaking the session requires breaking both
+      components.
+
+   *  *Direct when possible, relayed when not.* NAT hole punching
+      establishes a peer-to-peer path; a relay guarantees liveness as a
+      fallback.  A late or failed punch never wedges a session.
+
+   *  *Adaptive paths.* Route selection weighs RTT and loss with
+      hysteresis so that paths do not flap under real-world jitter.
+
+   The Directwire wire format described here is the shared contract
+   across the Directwire protocol family.  Companion documents (not yet
+   drafted) describe the message-oriented RPC transport, the low-latency
+   media transport, and the edge data plane.
+
+2.  Conventions and Terminology
+
+2.1.  Key Words
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+   "OPTIONAL" in this document are to be interpreted as described in BCP
+   14 [RFC2119] [RFC8174] when, and only when, they appear in all
+   capitals, as shown here.
+
+
+
+
+
+
+Directwire              Expires 17 February 2027                [Page 3]
+
+Internet-Draft            Directwire Transport               August 2026
+
+
+2.2.  Byte Order and Labels
+
+   *  Byte order is big-endian unless otherwise noted.
+
+   *  Domain-separated protocol labels are fixed ASCII byte strings.
+      They are part of the wire contract: changing a label is a breaking
+      change and MUST be accompanied by a version bump.
+
+2.3.  Terminology
+
+   Node
+      A Directwire endpoint holding an Ed25519 key pair.
+
+   Node ID
+      The 32-byte Ed25519 public key of a node.  It is the address used
+      for dialing.
+
+   Candidate endpoint
+      A network address (interface address or observed address) at which
+      a node may be reachable.
+
+   Relay
+      A server that forwards encrypted traffic between peers that cannot
+      establish a direct path and brokers candidate exchange.
+
+   Direct path
+      A peer-to-peer path established after successful NAT traversal.
+
+   Session
+      A negotiated, encrypted channel between two nodes, keyed by a
+      session ID derived from the handshake transcript.
+
+3.  Identity
+
+   *  Each node has an *Ed25519 key pair* [RFC8032]; the *Node ID* is
+      the 32-byte Ed25519 public key and is the address used for
+      dialing.
+
+   *  A node MAY additionally hold an *SM2 static key* bound to the
+      Ed25519 Node ID via a BIND signature (Section 7.2).  The binding
+      prevents an active man-in-the-middle from splicing a different SM2
+      key into the same identity.
+
+   *  Identity is *public-key-first*: no DNS, no registry, no revocation
+      list in the base protocol.  Trust is established by key pinning or
+      out-of-band fingerprint verification.  The reference
+      implementation uses trust-on-first-use (TOFU); production
+      deployments SHOULD pre-pin peer public keys.
+
+
+
+Directwire              Expires 17 February 2027                [Page 4]
+
+Internet-Draft            Directwire Transport               August 2026
+
+
+4.  Transport Overview
+
+   The default transport is UDP.  A node binds zero or more candidate
+   endpoints (local interface addresses and observed addresses).  A
+   _relay_ provides liveness: it forwards encrypted traffic between
+   peers that cannot establish a direct path, and it brokers candidate
+   exchange.
+
+5.  Relay Control Frames
+
+   The relay connection is a TCP stream.  Frames are length-prefixed: a
+   32-bit big-endian length followed by the payload.  The following
+   control frames are defined:
+
+    +==============+================+=================================+
+    | frame        | fields         | meaning                         |
+    +==============+================+=================================+
+    | Hello        | node_id (32B), | register session and candidate  |
+    |              | cands          | addresses                       |
+    +--------------+----------------+---------------------------------+
+    | HelloAck     | observed       | STUN-like echo of the peer's    |
+    |              | (SocketAddr)   | TCP source address [RFC5389]    |
+    +--------------+----------------+---------------------------------+
+    | PunchRequest | target         | ask the relay to broker both    |
+    |              | (NodeId)       | sides' candidates               |
+    +--------------+----------------+---------------------------------+
+    | Exchange     | peer (NodeId), | relay cross-sends the peer's    |
+    |              | cands          | candidate set                   |
+    +--------------+----------------+---------------------------------+
+    | RelayData    | to, from,      | forwarded ciphertext; from is   |
+    |              | payload        | overwritten from the connection |
+    |              |                | identity (anti-spoofing)        |
+    +--------------+----------------+---------------------------------+
+    | Error        | msg (string)   | e.g.  "first frame must be      |
+    |              |                | Hello", "target is not online", |
+    |              |                | "recipient is not online"       |
+    +--------------+----------------+---------------------------------+
+    | StatsQuery / | text           | per-node traffic accounting     |
+    | StatsReport  |                |                                 |
+    +--------------+----------------+---------------------------------+
+
+                       Table 1: Relay control frames
+
+   Candidate addresses carry a type tag: CAND_PUNCH (hole-punch UDP) and
+   CAND_QUIC (direct QUIC).  The relay MUST overwrite the from field of
+   RelayData from the authenticated connection identity, so that a
+   sender cannot spoof another node's identity.
+
+
+
+
+Directwire              Expires 17 February 2027                [Page 5]
+
+Internet-Draft            Directwire Transport               August 2026
+
+
+6.  NAT Traversal (Hole Punching)
+
+   *  Peers exchange candidate endpoints via the relay (Exchange); the
+      STUN-like observed address (Section 5) is included.
+
+   *  Each side sends *PUNCH* UDP packets to the peer's candidate set.
+      A PUNCH packet is a 4-byte magic PMP1 followed by a 32-byte Node
+      ID; the receiver dispatches it to the matching state machine by
+      sender Node ID.
+
+   *  On receiving a PUNCH from a candidate address, a peer establishes
+      the direct path and replies.
+
+   *  Failure or late arrival of a PUNCH MUST NOT wedge the session: the
+      state machine falls back to the relay path.
+
+   *  After completion, a small reply budget (default 5 per peer)
+      answers late PUNCH packets so that an asymmetric peer can finish.
+
+7.  Session Establishment
+
+7.1.  Default (Relay Path) Handshake — X25519 + Ed25519
+
+   A two-message handshake over the relay channel, Noise-IK-style
+   ephemeral DH with identity signatures [NOISE]; the ephemeral key
+   exchange uses X25519 [RFC7748] and the identity signatures use
+   Ed25519 [RFC8032]:
+
+    +=========+====================================+==================+
+    | message | wire form                          | purpose          |
+    +=========+====================================+==================+
+    | HS_INIT | HS_TAG (0x48), HS_KIND_INIT        | initiator proves |
+    |         | (0x01), ephemeral X25519 pk (32B), | identity, sends  |
+    |         | NodeId (32B), Ed25519 signature    | ephemeral        |
+    +---------+------------------------------------+------------------+
+    | HS_RESP | HS_TAG (0x48), HS_KIND_RESP        | responder proves |
+    |         | (0x02), ephemeral X25519 pk (32B), | identity,        |
+    |         | NodeId (32B), Ed25519 signature,   | replies          |
+    |         | AEAD envelope                      |                  |
+    +---------+------------------------------------+------------------+
+
+                        Table 2: Handshake messages
+
+   On success, transport keys are split from the DH shared secret and
+   the identities; the transcript hash becomes the session ID.  A
+   ciphertext arriving before the handshake completes is dropped.
+
+
+
+
+
+Directwire              Expires 17 February 2027                [Page 6]
+
+Internet-Draft            Directwire Transport               August 2026
+
+
+7.2.  Optional GM-PQ Channel
+
+   When enabled on both sides, the relay path uses a hybrid handshake:
+   *SM2 + ML-KEM-768 hybrid KEM* [GBT32918] [FIPS203], an SM3 transcript
+   [GBT32905], and an SM4-GCM data plane [GBT32907].  Channel frames are
+   relay payloads tagged with a leading GM_TAG (0x47):
+
+    +==================+=============================================+
+    | subtype          | meaning                                     |
+    +==================+=============================================+
+    | GM_KICK (0x4B)   | wake the peer and signal GM-PQ intent       |
+    +------------------+---------------------------------------------+
+    | GM_MSG1 (0x01)   | client ephemeral public key                 |
+    +------------------+---------------------------------------------+
+    | GM_COOKIE (0x02) | stateless cookie challenge (DoS protection) |
+    +------------------+---------------------------------------------+
+    | GM_MSG1_RETRY    | client echoes the cookie and retries MSG1   |
+    | (0x03)           |                                             |
+    +------------------+---------------------------------------------+
+    | GM_MSG2 (0x04)   | server response (hybrid ciphertext + AEAD   |
+    |                  | identity)                                   |
+    +------------------+---------------------------------------------+
+    | GM_MSG3 (0x05)   | client final (hybrid ciphertext + AEAD      |
+    |                  | identity + SM2 signature)                   |
+    +------------------+---------------------------------------------+
+    | GM_DATA (0xD0)   | encrypted session payload                   |
+    +------------------+---------------------------------------------+
+
+                      Table 3: GM-PQ channel frames
+
+   *Role rule.* The smaller Node ID is the client (initiator), and the
+   larger is the server (responder); simultaneous initiation is
+   naturally deduplicated.
+
+   *Identity binding.* After the handshake both sides send *BIND* as the
+   first ciphertext: BND1 + Ed25519 Node ID + a signature over b"p2p-
+   mesh/gmpq-bind" || SM3(gm_pk) || node_id || session_id.  The
+   handshake layer is TOFU (SM2 keys are not pre-authenticated), but
+   BIND strongly binds the session to the authenticated Ed25519
+   identity: a man-in-the-middle splicing two half-handshakes would
+   obtain different session IDs, so a forwarded BIND is rejected.
+   Production SHOULD replace TOFU with a pinned SM2 anchor.
+
+   *Fallback.* If the peer has GM-PQ off, channel frames are silently
+   ignored; after a 3-second timeout the implementation falls back to
+   the Section 7.1 X25519 handshake.  A generation-tagged timer prevents
+   stale-fire.
+
+
+
+
+Directwire              Expires 17 February 2027                [Page 7]
+
+Internet-Draft            Directwire Transport               August 2026
+
+
+   *Forward secrecy.* Breaking the hybrid session requires breaking both
+   the classical (SM2) and the post-quantum (ML-KEM-768) components (X-
+   Wing/GHP18 combiner, SM3 as random oracle).
+
+7.3.  Direct Path — QUIC/TLS 1.3
+
+   The QUIC [RFC9000] endpoint, secured with TLS 1.3 [RFC8446], self-
+   signs a certificate whose *public key equals the Node ID*. The
+   connecting side pins the certificate to the expected Node ID (dial-
+   by-public-key); the server side validates structural validity only.
+   ALPN = b"p2p-mesh/0", SAN node.p2p-mesh.local.  Hole punching and
+   QUIC run on the same UDP socket, so the opened NAT mapping serves
+   both.  Simultaneous open: both sides connect and accept; the smaller
+   Node ID's outbound connection is canonical, and duplicates are closed
+   with b"duplicate" or b"superseded".
+
+8.  Message Framing
+
+   The message-oriented data plane follows Homa's receiver-driven design
+   [HOMA], with message-level (not byte-stream) semantics.  The framing
+   rules are:
+
+   *  Messages carry a monotonically increasing 64-bit sequence number
+      used as AEAD nonce entropy.
+
+   *  The receiver maintains a 64-slot sliding replay window: duplicate
+      or too-old sequence numbers are rejected; reordering of up to 64
+      messages is allowed (suitable for UDP and multi-path).
+
+   *  Relay inner plaintexts are tagged: INNER_DATA (0x01) application
+      message, INNER_PING (0x02) and INNER_PONG (0x03) keepalive probes.
+
+9.  Path Selection
+
+   *  Paths are scored by RTT and loss.  Effective score = RTT * (1 + 10
+      * loss), with hysteresis and a minimum dwell time to prevent
+      flapping.
+
+   *  Path states are relay (initial) and direct (after punch), with
+      fallback to relay if the direct path degrades or drops.  Switching
+      is seamless: queued messages are flushed over the new path.
+
+10.  Security Considerations
+
+   *  *0-RTT early data has no full forward secrecy* and MAY be replayed
+      within the crash window; applications MUST treat early data as
+      idempotent.
+
+
+
+
+Directwire              Expires 17 February 2027                [Page 8]
+
+Internet-Draft            Directwire Transport               August 2026
+
+
+   *  *The relay sees only ciphertext.* The relay cannot decrypt,
+      authenticate, or inspect agent traffic; it only forwards and
+      meters.
+
+   *  *Post-quantum readiness.* Breaking the hybrid session requires
+      breaking both the classical (SM2/ECDH) and the post-quantum (ML-
+      KEM-768) components.
+
+   *  *Reference implementation scope.* The cryptographic modules are an
+      architecture-validation skeleton and are NOT formally certified.
+      Deployments subject to commercial-crypto regulation MUST perform
+      their own certification and evaluation before use.
+
+   *  The relay control-plane protocol described in Section 5 predates
+      authentication of the relay stream in the base protocol; operators
+      SHOULD deploy the relay behind transport security (e.g.  TLS).
+
+11.  IANA Considerations
+
+   This document has no IANA actions.  If the protocol matures to the
+   Standards Track, the protocol labels, candidate tags, and inner
+   plaintext tags defined here should be registered.
+
+12.  Normative References
+
+   [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119, March 1997,
+              <https://www.rfc-editor.org/info/rfc2119>.
+
+   [RFC8174]  Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC
+              2119 Key Words", BCP 14, RFC 8174, May 2017,
+              <https://www.rfc-editor.org/info/rfc8174>.
+
+   [RFC7748]  Langley, A., Hamburg, M., and S. Turner, "Elliptic Curves
+              for Security", RFC 7748, January 2016,
+              <https://www.rfc-editor.org/info/rfc7748>.
+
+   [RFC8032]  Josefsson, S. and I. Liusvaara, "Edwards-Curve Digital
+              Signature Algorithm (EdDSA)", RFC 8032, January 2017,
+              <https://www.rfc-editor.org/info/rfc8032>.
+
+   [RFC8446]  Rescorla, E., "The Transport Layer Security (TLS) Protocol
+              Version 1.3", RFC 8446, August 2018,
+              <https://www.rfc-editor.org/info/rfc8446>.
+
+   [RFC9000]  Iyengar, J. and M. Thomson, "QUIC: A UDP-Based Multiplexed
+              and Secure Transport", RFC 9000, May 2021,
+              <https://www.rfc-editor.org/info/rfc9000>.
+
+
+
+Directwire              Expires 17 February 2027                [Page 9]
+
+Internet-Draft            Directwire Transport               August 2026
+
+
+   [FIPS203]  National Institute of Standards and Technology, "Module-
+              Lattice-Based Key-Encapsulation Mechanism Standard",
+              August 2024, <https://doi.org/10.6028/NIST.FIPS.203>.
+
+   [GBT32918] Standardization Administration of the People's Republic of
+              China, "GB/T 32918-2016 Information Security Technology —
+              SM2 Elliptic Curve Public Key Cryptographic Algorithms",
+              2016, <https://openstd.samr.gov.cn/bzgk/gb/index>.
+
+   [GBT32905] Standardization Administration of the People's Republic of
+              China, "GB/T 32905-2016 Information Security Technology —
+              SM3 Cryptographic Hash Algorithm", 2016,
+              <https://openstd.samr.gov.cn/bzgk/gb/index>.
+
+   [GBT32907] Standardization Administration of the People's Republic of
+              China, "GB/T 32907-2016 Information Security Technology —
+              SM4 Block Cipher Algorithm", 2016,
+              <https://openstd.samr.gov.cn/bzgk/gb/index>.
+
+13.  Informative References
+
+   [RFC5389]  Rosenberg, J., Mahy, R., Matthews, P., and D. Wing,
+              "Session Traversal Utilities for NAT (STUN)", RFC 5389,
+              October 2008, <https://www.rfc-editor.org/info/rfc5389>.
+
+   [RFC7991]  Hoffman, P., "The "xml2rfc" Version 3 Vocabulary",
+              RFC 7991, December 2016,
+              <https://www.rfc-editor.org/info/rfc7991>.
+
+   [NOISE]    Perrin, T., "The Noise Protocol Framework", 2018,
+              <https://noiseprotocol.org/noise.pdf>.
+
+   [IROH]     number 0, "iroh — Peer-to-Peer Networking for
+              Applications", <https://iroh.computer>.
+
+   [HOMA]     Ousterhout, J., "Homa — A Receiver-Driven Low-Latency
+              Transport Protocol Using Network Priorities", 2017,
+              <https://homa.readthedocs.io>.
+
+Appendix A.  v0.3 Candidate — Explicit DONE Message Replacing Implicit
+             ACK
+
+   *Status:* design note / candidate.  Not part of the current wire
+   format (v0.2).
+
+
+
+
+
+
+
+Directwire              Expires 17 February 2027               [Page 10]
+
+Internet-Draft            Directwire Transport               August 2026
+
+
+A.1.  Background: The Short-Message Loss Dead-Zone (v0.2 Problem)
+
+   For messages entirely within the unscheduled window (under 10 KB),
+   the receiver issues no GRANT and reassembles the message from the
+   first packet(s) alone.  If such a message's first packet is lost, the
+   receiver has never seen the message and therefore cannot send RESEND;
+   the sender cannot know the message is lost without some
+   acknowledgment.
+
+   v0.2 closes this with an _implicit ACK_: the RPC response doubles as
+   the request's acknowledgment.  The transport keeps the finished
+   request in a retransmit window (retransmit_timeout, conservative RTT
+   estimate, default 500 ms) and re-sends chunk 0 if no confirm()
+   arrived; the receiver uses the re-sent chunk 0 to (re)establish
+   reassembly and drive the rest via GRANT/RESEND.  This is entirely
+   sender-side (no wire change) and provably adds zero extra traffic
+   when there is no loss.
+
+A.2.  Why a Candidate at All
+
+   The implicit-ACK design has three structural costs:
+
+   1.  *Response loss is handled at the RPC layer, not the transport.*
+       If the response is lost, the request's transport message is
+       confirmed anyway, and recovery falls to the client's at-least-
+       once retry (attempt_timeout) plus server idempotent replay.  The
+       RPC layer must keep attempt_timeout > retransmit_timeout + RTT to
+       avoid racing the sender's own poke — a coupling the transport
+       should not need.
+
+   2.  *Only RPC requests get the window.* Responses do not retransmit;
+       a response whose first packet is lost must wait for the client to
+       re-request.  The transport is not self-contained.
+
+   3.  *confirm() is an RPC-layer concept.* The transport cannot tell
+       "delivered" from "still in flight" without being told by an upper
+       layer.
+
+A.3.  Candidate Design (v0.3)
+
+   *  Add a *DONE* control message sent by the receiver once it has
+      reassembled a complete message: msg_id plus an optional cumulative
+      fingerprint/checksum.
+
+   *  The sender treats DONE as the release condition: the message is
+      removed from its state immediately (no linger, no retransmit
+      window) — the wire now carries explicit delivery confirmation
+      instead of inferring it from an application response.
+
+
+
+Directwire              Expires 17 February 2027               [Page 11]
+
+Internet-Draft            Directwire Transport               August 2026
+
+
+   *  This makes request and response loss symmetric: both are
+      transport-confirmed, and the RPC layer's attempt_timeout becomes a
+      pure backstop for a _lost DONE_ (recoverable by the existing at-
+      least-once retry) rather than the primary recovery path.
+
+A.4.  Trade-Offs (Why v0.2 Shipped Without It)
+
+   *  *Wire change*: new packet type, version/label bump (Section 2.2).
+      v0.2 deliberately kept the wire format untouched (sender-only
+      fix).
+
+   *  *More receiver state*: must track delivered message IDs to emit
+      DONE and avoid DONE-storms on reordered delivery.
+
+   *  *DONE loss handling*: a lost DONE reintroduces the window it was
+      meant to remove — it needs its own re-request or timeout, trading
+      one acknowledgment mechanism for another.
+
+   *  *Idempotent-replay value proposition unchanged*: at-least-once
+      semantics already make application-level dedup mandatory; DONE
+      removes transport reliance on it but does not remove the
+      application requirement.
+
+Author's Address
+
+   Directwire
+   Directwire (anonymous contributor group)
+   Email: draft-directwire@directwire.example
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Directwire              Expires 17 February 2027               [Page 12]

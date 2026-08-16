@@ -1,0 +1,621 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="rfc2629.xslt" ?>
+<rfc version="3" ipr="trust200902" submissionType="IETF" category="info"
+     docName="draft-directwire-agent-transport-00"
+     xml:lang="en" consensus="true">
+  <front>
+    <title abbrev="Directwire Transport">Directwire — An Identity-Centric Transport for Autonomous Agents</title>
+    <seriesInfo name="Internet-Draft" value="draft-directwire-agent-transport-00"/>
+    <author fullname="Directwire">
+      <organization>Directwire (anonymous contributor group)</organization>
+      <address>
+        <email>draft-directwire@directwire.example</email>
+      </address>
+    </author>
+    <date year="2026" month="August" day="16"/>
+    <area>Transport</area>
+    <abstract>
+      <t>This document specifies <em>Directwire</em>, a transport and discovery
+      protocol in which a peer's cryptographic identity <em>is</em> its address.
+      A Directwire node registers a set of candidate network endpoints with a
+      lightweight relay that brokers NAT traversal; once a direct path is
+      established, peers communicate peer-to-peer without any intermediary.
+      Session establishment supports a default ephemeral-DH handshake
+      (X25519 + Ed25519) and an optional hybrid national-crypto / post-quantum
+      channel (SM2 + ML-KEM-768 with an SM4-GCM data plane). Messages carry
+      monotonic sequence numbers with a sliding replay window. Path selection
+      scores candidate paths by RTT and loss with hysteresis.</t>
+      <t>Directwire is designed for autonomous agents: long-lived, unattended
+      programs that need a stable address that cannot be taken away by a broker
+      or a cloud relay, direct connectivity when NAT permits, and a secure
+      fallback when it does not. This document is an informational draft
+      describing the protocol as implemented by the reference implementation at
+      version 0.2.</t>
+    </abstract>
+    <note title="About This Document">
+      <t>The protocol presented here follows the iroh peer-to-peer model for
+      candidate discovery and relay brokering <xref target="IROH"/>. This
+      document was produced using the <tt>xml2rfc</tt> version 3 vocabulary
+      <xref target="RFC7991"/>.</t>
+    </note>
+  </front>
+
+  <middle>
+    <section anchor="introduction" numbered="true" toc="default">
+      <name>Introduction</name>
+      <t>Autonomous agents today are chained to central brokers and cloud
+      relays. Their "address" is a session in someone else's database:
+      revocable, rate-limited, and subject to the availability and policy of
+      the broker. Directwire replaces that dependency with a cryptographic
+      identity that cannot be taken away. Peers are dialed <em>by public key,
+      not by IP</em>.</t>
+      <t>The protocol has four design goals:</t>
+      <ul>
+        <li><t><strong>Identity is the address.</strong> A node is dialed by the
+        32-byte Ed25519 public key that is its Node ID. No DNS, no registry,
+        and no IP is the primary identity.</t></li>
+        <li><t><strong>Encrypted by default, hybrid-hardened.</strong> Sessions
+        are encrypted. The optional hybrid channel layers a national-crypto
+        signature scheme (SM2) and a post-quantum key-encapsulation mechanism
+        (ML-KEM-768) so that breaking the session requires breaking both
+        components.</t></li>
+        <li><t><strong>Direct when possible, relayed when not.</strong> NAT hole
+        punching establishes a peer-to-peer path; a relay guarantees liveness
+        as a fallback. A late or failed punch never wedges a session.</t></li>
+        <li><t><strong>Adaptive paths.</strong> Route selection weighs RTT and
+        loss with hysteresis so that paths do not flap under real-world
+        jitter.</t></li>
+      </ul>
+      <t>The Directwire wire format described here is the shared contract across
+      the Directwire protocol family. Companion documents (not yet drafted)
+      describe the message-oriented RPC transport, the low-latency media
+      transport, and the edge data plane.</t>
+    </section>
+
+    <section anchor="conventions" numbered="true" toc="default">
+      <name>Conventions and Terminology</name>
+      <section anchor="key-words" numbered="true" toc="default">
+        <name>Key Words</name>
+        <t>The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+        "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+        "OPTIONAL" in this document are to be interpreted as described in BCP 14
+        <xref target="RFC2119"/> <xref target="RFC8174"/> when, and only when,
+        they appear in all capitals, as shown here.</t>
+      </section>
+      <section anchor="byte-order-and-labels" numbered="true" toc="default">
+        <name>Byte Order and Labels</name>
+        <ul>
+          <li><t>Byte order is big-endian unless otherwise noted.</t></li>
+          <li><t>Domain-separated protocol labels are fixed ASCII byte strings.
+          They are part of the wire contract: changing a label is a breaking
+          change and MUST be accompanied by a version bump.</t></li>
+        </ul>
+      </section>
+      <section anchor="terminology" numbered="true" toc="default">
+        <name>Terminology</name>
+        <dl newline="true" spacing="normal">
+          <dt>Node</dt><dd>A Directwire endpoint holding an Ed25519 key pair.</dd>
+          <dt>Node ID</dt><dd>The 32-byte Ed25519 public key of a node. It is
+          the address used for dialing.</dd>
+          <dt>Candidate endpoint</dt><dd>A network address (interface address or
+          observed address) at which a node may be reachable.</dd>
+          <dt>Relay</dt><dd>A server that forwards encrypted traffic between
+          peers that cannot establish a direct path and brokers candidate
+          exchange.</dd>
+          <dt>Direct path</dt><dd>A peer-to-peer path established after
+          successful NAT traversal.</dd>
+          <dt>Session</dt><dd>A negotiated, encrypted channel between two nodes,
+          keyed by a session ID derived from the handshake transcript.</dd>
+        </dl>
+      </section>
+    </section>
+
+    <section anchor="identity" numbered="true" toc="default">
+      <name>Identity</name>
+      <ul>
+        <li><t>Each node has an <strong>Ed25519 key pair</strong>
+        <xref target="RFC8032"/>; the <strong>Node ID</strong> is the 32-byte
+        Ed25519 public key and is the address used for dialing.</t></li>
+        <li><t>A node MAY additionally hold an <strong>SM2 static key</strong>
+        bound to the Ed25519 Node ID via a BIND signature
+        (Section <xref target="gmpq-channel" format="counter"/>). The binding
+        prevents an active man-in-the-middle from splicing a different SM2 key
+        into the same identity.</t></li>
+        <li><t>Identity is <strong>public-key-first</strong>: no DNS, no
+        registry, no revocation list in the base protocol. Trust is established
+        by key pinning or out-of-band fingerprint verification. The reference
+        implementation uses trust-on-first-use (TOFU); production deployments
+        SHOULD pre-pin peer public keys.</t></li>
+      </ul>
+    </section>
+
+    <section anchor="transport-overview" numbered="true" toc="default">
+      <name>Transport Overview</name>
+      <t>The default transport is UDP. A node binds zero or more candidate
+      endpoints (local interface addresses and observed addresses). A
+      <em>relay</em> provides liveness: it forwards encrypted traffic between
+      peers that cannot establish a direct path, and it brokers candidate
+      exchange.</t>
+    </section>
+
+    <section anchor="relay-control-frames" numbered="true" toc="default">
+      <name>Relay Control Frames</name>
+      <t>The relay connection is a TCP stream. Frames are length-prefixed: a
+      32-bit big-endian length followed by the payload. The following control
+      frames are defined:</t>
+      <table anchor="relay-frames">
+        <name>Relay control frames</name>
+        <thead>
+          <tr>
+            <th>frame</th>
+            <th>fields</th>
+            <th>meaning</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td><tt>Hello</tt></td><td><tt>node_id</tt> (32B),
+          <tt>cands</tt></td><td>register session and candidate addresses</td></tr>
+          <tr><td><tt>HelloAck</tt></td><td><tt>observed</tt>
+          (SocketAddr)</td><td>STUN-like echo of the peer's TCP source
+          address <xref target="RFC5389"/></td></tr>
+          <tr><td><tt>PunchRequest</tt></td><td><tt>target</tt>
+          (NodeId)</td><td>ask the relay to broker both sides' candidates</td></tr>
+          <tr><td><tt>Exchange</tt></td><td><tt>peer</tt> (NodeId),
+          <tt>cands</tt></td><td>relay cross-sends the peer's candidate
+          set</td></tr>
+          <tr><td><tt>RelayData</tt></td><td><tt>to</tt>, <tt>from</tt>,
+          <tt>payload</tt></td><td>forwarded ciphertext; <tt>from</tt> is
+          overwritten from the connection identity
+          (anti-spoofing)</td></tr>
+          <tr><td><tt>Error</tt></td><td><tt>msg</tt> (string)</td><td>e.g.
+          "first frame must be Hello", "target is not online", "recipient is
+          not online"</td></tr>
+          <tr><td><tt>StatsQuery</tt> / <tt>StatsReport</tt></td><td><tt>text</tt></td><td>per-node
+          traffic accounting</td></tr>
+        </tbody>
+      </table>
+      <t>Candidate addresses carry a type tag: <tt>CAND_PUNCH</tt>
+      (hole-punch UDP) and <tt>CAND_QUIC</tt> (direct QUIC). The relay MUST
+      overwrite the <tt>from</tt> field of <tt>RelayData</tt> from the
+      authenticated connection identity, so that a sender cannot spoof another
+      node's identity.</t>
+    </section>
+
+    <section anchor="nat-traversal" numbered="true" toc="default">
+      <name>NAT Traversal (Hole Punching)</name>
+      <ul>
+        <li><t>Peers exchange candidate endpoints via the relay
+        (<tt>Exchange</tt>); the STUN-like observed address
+        (Section <xref target="relay-control-frames" format="counter"/>) is
+        included.</t></li>
+        <li><t>Each side sends <strong>PUNCH</strong> UDP packets to the peer's
+        candidate set. A PUNCH packet is a 4-byte magic <tt>PMP1</tt> followed
+        by a 32-byte Node ID; the receiver dispatches it to the matching state
+        machine by sender Node ID.</t></li>
+        <li><t>On receiving a PUNCH from a candidate address, a peer
+        establishes the direct path and replies.</t></li>
+        <li><t>Failure or late arrival of a PUNCH MUST NOT wedge the session:
+        the state machine falls back to the relay path.</t></li>
+        <li><t>After completion, a small reply budget (default 5 per peer)
+        answers late PUNCH packets so that an asymmetric peer can finish.</t></li>
+      </ul>
+    </section>
+
+    <section anchor="session-establishment" numbered="true" toc="default">
+      <name>Session Establishment</name>
+      <section anchor="default-handshake" numbered="true" toc="default">
+        <name>Default (Relay Path) Handshake — X25519 + Ed25519</name>
+        <t>A two-message handshake over the relay channel, Noise-IK-style
+        ephemeral DH with identity signatures <xref target="NOISE"/>; the
+        ephemeral key exchange uses X25519 <xref target="RFC7748"/> and the
+        identity signatures use Ed25519 <xref target="RFC8032"/>:</t>
+        <table anchor="hs-messages">
+          <name>Handshake messages</name>
+          <thead>
+            <tr>
+              <th>message</th>
+              <th>wire form</th>
+              <th>purpose</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><tt>HS_INIT</tt></td><td><tt>HS_TAG</tt> (0x48),
+            <tt>HS_KIND_INIT</tt> (0x01), ephemeral X25519 pk (32B), NodeId
+            (32B), Ed25519 signature</td><td>initiator proves identity, sends
+            ephemeral</td></tr>
+            <tr><td><tt>HS_RESP</tt></td><td><tt>HS_TAG</tt> (0x48),
+            <tt>HS_KIND_RESP</tt> (0x02), ephemeral X25519 pk (32B), NodeId
+            (32B), Ed25519 signature, AEAD envelope</td><td>responder proves
+            identity, replies</td></tr>
+          </tbody>
+        </table>
+        <t>On success, transport keys are split from the DH shared secret and
+        the identities; the transcript hash becomes the session ID. A
+        ciphertext arriving before the handshake completes is dropped.</t>
+      </section>
+      <section anchor="gmpq-channel" numbered="true" toc="default">
+        <name>Optional GM-PQ Channel</name>
+        <t>When enabled on both sides, the relay path uses a hybrid handshake:
+        <strong>SM2 + ML-KEM-768 hybrid KEM</strong> <xref target="GBT32918"/>
+        <xref target="FIPS203"/>, an SM3 transcript <xref target="GBT32905"/>,
+        and an SM4-GCM data plane <xref target="GBT32907"/>. Channel frames are
+        relay payloads tagged with a leading <tt>GM_TAG</tt> (0x47):</t>
+        <table anchor="gm-frames">
+          <name>GM-PQ channel frames</name>
+          <thead>
+            <tr>
+              <th>subtype</th>
+              <th>meaning</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><tt>GM_KICK</tt> (0x4B)</td><td>wake the peer and signal
+            GM-PQ intent</td></tr>
+            <tr><td><tt>GM_MSG1</tt> (0x01)</td><td>client ephemeral public
+            key</td></tr>
+            <tr><td><tt>GM_COOKIE</tt> (0x02)</td><td>stateless cookie
+            challenge (DoS protection)</td></tr>
+            <tr><td><tt>GM_MSG1_RETRY</tt> (0x03)</td><td>client echoes the
+            cookie and retries MSG1</td></tr>
+            <tr><td><tt>GM_MSG2</tt> (0x04)</td><td>server response (hybrid
+            ciphertext + AEAD identity)</td></tr>
+            <tr><td><tt>GM_MSG3</tt> (0x05)</td><td>client final (hybrid
+            ciphertext + AEAD identity + SM2 signature)</td></tr>
+            <tr><td><tt>GM_DATA</tt> (0xD0)</td><td>encrypted session
+            payload</td></tr>
+          </tbody>
+        </table>
+        <t><strong>Role rule.</strong> The smaller Node ID is the client
+        (initiator), and the larger is the server (responder); simultaneous
+        initiation is naturally deduplicated.</t>
+        <t><strong>Identity binding.</strong> After the handshake both sides
+        send <strong>BIND</strong> as the first ciphertext: <tt>BND1</tt> +
+        Ed25519 Node ID + a signature over
+        <tt>b"p2p-mesh/gmpq-bind" || SM3(gm_pk) || node_id || session_id</tt>.
+        The handshake layer is TOFU (SM2 keys are not pre-authenticated), but
+        BIND strongly binds the session to the authenticated Ed25519 identity:
+        a man-in-the-middle splicing two half-handshakes would obtain different
+        session IDs, so a forwarded BIND is rejected. Production SHOULD replace
+        TOFU with a pinned SM2 anchor.</t>
+        <t><strong>Fallback.</strong> If the peer has GM-PQ off, channel frames
+        are silently ignored; after a 3-second timeout the implementation falls
+        back to the
+        Section <xref target="default-handshake" format="counter"/> X25519
+        handshake. A generation-tagged timer prevents stale-fire.</t>
+        <t><strong>Forward secrecy.</strong> Breaking the hybrid session
+        requires breaking both the classical (SM2) and the post-quantum
+        (ML-KEM-768) components (X-Wing/GHP18 combiner, SM3 as random
+        oracle).</t>
+      </section>
+      <section anchor="direct-path" numbered="true" toc="default">
+        <name>Direct Path — QUIC/TLS 1.3</name>
+        <t>The QUIC <xref target="RFC9000"/> endpoint, secured with TLS 1.3
+        <xref target="RFC8446"/>, self-signs a certificate whose
+        <strong>public key equals the Node ID</strong>. The connecting side
+        pins the certificate to the expected Node ID (dial-by-public-key); the
+        server side validates structural validity only.
+        <tt>ALPN = b"p2p-mesh/0"</tt>, SAN <tt>node.p2p-mesh.local</tt>. Hole
+        punching and QUIC run on the same UDP socket, so the opened NAT mapping
+        serves both. Simultaneous open:
+        both sides connect and accept; the smaller Node ID's outbound
+        connection is canonical, and duplicates are closed with
+        <tt>b"duplicate"</tt> or <tt>b"superseded"</tt>.</t>
+      </section>
+    </section>
+
+    <section anchor="message-framing" numbered="true" toc="default">
+      <name>Message Framing</name>
+      <t>The message-oriented data plane follows Homa's receiver-driven design
+      <xref target="HOMA"/>, with message-level (not byte-stream) semantics.
+      The framing rules are:</t>
+      <ul>
+        <li><t>Messages carry a monotonically increasing 64-bit sequence number
+        used as AEAD nonce entropy.</t></li>
+        <li><t>The receiver maintains a 64-slot sliding replay window:
+        duplicate or too-old sequence numbers are rejected; reordering of up to
+        64 messages is allowed (suitable for UDP and multi-path).</t></li>
+        <li><t>Relay inner plaintexts are tagged: <tt>INNER_DATA</tt> (0x01)
+        application message, <tt>INNER_PING</tt> (0x02) and <tt>INNER_PONG</tt>
+        (0x03) keepalive probes.</t></li>
+      </ul>
+    </section>
+
+    <section anchor="path-selection" numbered="true" toc="default">
+      <name>Path Selection</name>
+      <ul>
+        <li><t>Paths are scored by RTT and loss. Effective score =
+        <tt>RTT * (1 + 10 * loss)</tt>, with hysteresis and a minimum dwell
+        time to prevent flapping.</t></li>
+        <li><t>Path states are <tt>relay</tt> (initial) and <tt>direct</tt>
+        (after punch), with fallback to <tt>relay</tt> if the direct path
+        degrades or drops. Switching is seamless: queued messages are flushed
+        over the new path.</t></li>
+      </ul>
+    </section>
+
+    <section anchor="security-considerations" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <ul>
+        <li><t><strong>0-RTT early data has no full forward secrecy</strong>
+        and MAY be replayed within the crash window; applications MUST treat
+        early data as idempotent.</t></li>
+        <li><t><strong>The relay sees only ciphertext.</strong> The relay cannot
+        decrypt, authenticate, or inspect agent traffic; it only forwards and
+        meters.</t></li>
+        <li><t><strong>Post-quantum readiness.</strong> Breaking the hybrid
+        session requires breaking both the classical (SM2/ECDH) and the
+        post-quantum (ML-KEM-768) components.</t></li>
+        <li><t><strong>Reference implementation scope.</strong> The
+        cryptographic modules are an architecture-validation skeleton and are
+        NOT formally certified. Deployments subject to commercial-crypto
+        regulation MUST perform their own certification and evaluation before
+        use.</t></li>
+        <li><t>The relay control-plane protocol described in
+        Section <xref target="relay-control-frames" format="counter"/>
+        predates authentication of the relay stream in the base protocol;
+        operators SHOULD deploy the relay behind transport security (e.g.
+        TLS).</t></li>
+      </ul>
+    </section>
+
+    <section anchor="iana-considerations" numbered="true" toc="default">
+      <name>IANA Considerations</name>
+      <t>This document has no IANA actions. If the protocol matures to the
+      Standards Track, the protocol labels, candidate tags, and inner plaintext
+      tags defined here should be registered.</t>
+    </section>
+  </middle>
+
+  <back>
+    <references>
+      <name>Normative References</name>
+      <reference anchor="RFC2119" target="https://www.rfc-editor.org/info/rfc2119">
+        <front>
+          <title>Key words for use in RFCs to Indicate Requirement Levels</title>
+          <author initials="S." surname="Bradner" fullname="Scott Bradner">
+            <organization/>
+          </author>
+          <date month="March" year="1997"/>
+        </front>
+        <seriesInfo name="BCP" value="14"/>
+        <seriesInfo name="RFC" value="2119"/>
+      </reference>
+      <reference anchor="RFC8174" target="https://www.rfc-editor.org/info/rfc8174">
+        <front>
+          <title>Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words</title>
+          <author initials="B." surname="Leiba" fullname="Barry Leiba">
+            <organization/>
+          </author>
+          <date month="May" year="2017"/>
+        </front>
+        <seriesInfo name="BCP" value="14"/>
+        <seriesInfo name="RFC" value="8174"/>
+      </reference>
+      <reference anchor="RFC7748" target="https://www.rfc-editor.org/info/rfc7748">
+        <front>
+          <title>Elliptic Curves for Security</title>
+          <author initials="A." surname="Langley" fullname="Adam Langley">
+            <organization/>
+          </author>
+          <author initials="M." surname="Hamburg" fullname="Mike Hamburg">
+            <organization/>
+          </author>
+          <author initials="S." surname="Turner" fullname="Sean Turner">
+            <organization/>
+          </author>
+          <date month="January" year="2016"/>
+        </front>
+        <seriesInfo name="RFC" value="7748"/>
+      </reference>
+      <reference anchor="RFC8032" target="https://www.rfc-editor.org/info/rfc8032">
+        <front>
+          <title>Edwards-Curve Digital Signature Algorithm (EdDSA)</title>
+          <author initials="S." surname="Josefsson" fullname="Simon Josefsson">
+            <organization/>
+          </author>
+          <author initials="I." surname="Liusvaara" fullname="Ilari Liusvaara">
+            <organization/>
+          </author>
+          <date month="January" year="2017"/>
+        </front>
+        <seriesInfo name="RFC" value="8032"/>
+      </reference>
+      <reference anchor="RFC8446" target="https://www.rfc-editor.org/info/rfc8446">
+        <front>
+          <title>The Transport Layer Security (TLS) Protocol Version 1.3</title>
+          <author initials="E." surname="Rescorla" fullname="Eric Rescorla">
+            <organization/>
+          </author>
+          <date month="August" year="2018"/>
+        </front>
+        <seriesInfo name="RFC" value="8446"/>
+      </reference>
+      <reference anchor="RFC9000" target="https://www.rfc-editor.org/info/rfc9000">
+        <front>
+          <title>QUIC: A UDP-Based Multiplexed and Secure Transport</title>
+          <author initials="J." surname="Iyengar" fullname="Jana Iyengar">
+            <organization/>
+          </author>
+          <author initials="M." surname="Thomson" fullname="Martin Thomson">
+            <organization/>
+          </author>
+          <date month="May" year="2021"/>
+        </front>
+        <seriesInfo name="RFC" value="9000"/>
+      </reference>
+      <reference anchor="FIPS203" target="https://doi.org/10.6028/NIST.FIPS.203">
+        <front>
+          <title>Module-Lattice-Based Key-Encapsulation Mechanism Standard</title>
+          <author>
+            <organization>National Institute of Standards and Technology</organization>
+          </author>
+          <date month="August" year="2024"/>
+        </front>
+      </reference>
+      <reference anchor="GBT32918" target="https://openstd.samr.gov.cn/bzgk/gb/index">
+        <front>
+          <title>GB/T 32918-2016 Information Security Technology — SM2 Elliptic Curve Public Key Cryptographic Algorithms</title>
+          <author>
+            <organization>Standardization Administration of the People's Republic of China</organization>
+          </author>
+          <date year="2016"/>
+        </front>
+      </reference>
+      <reference anchor="GBT32905" target="https://openstd.samr.gov.cn/bzgk/gb/index">
+        <front>
+          <title>GB/T 32905-2016 Information Security Technology — SM3 Cryptographic Hash Algorithm</title>
+          <author>
+            <organization>Standardization Administration of the People's Republic of China</organization>
+          </author>
+          <date year="2016"/>
+        </front>
+      </reference>
+      <reference anchor="GBT32907" target="https://openstd.samr.gov.cn/bzgk/gb/index">
+        <front>
+          <title>GB/T 32907-2016 Information Security Technology — SM4 Block Cipher Algorithm</title>
+          <author>
+            <organization>Standardization Administration of the People's Republic of China</organization>
+          </author>
+          <date year="2016"/>
+        </front>
+      </reference>
+    </references>
+
+    <references>
+      <name>Informative References</name>
+      <reference anchor="RFC5389" target="https://www.rfc-editor.org/info/rfc5389">
+        <front>
+          <title>Session Traversal Utilities for NAT (STUN)</title>
+          <author initials="J." surname="Rosenberg" fullname="Jonathan Rosenberg">
+            <organization/>
+          </author>
+          <author initials="R." surname="Mahy" fullname="Rohan Mahy">
+            <organization/>
+          </author>
+          <author initials="P." surname="Matthews" fullname="Philip Matthews">
+            <organization/>
+          </author>
+          <author initials="D." surname="Wing" fullname="Dan Wing">
+            <organization/>
+          </author>
+          <date month="October" year="2008"/>
+        </front>
+        <seriesInfo name="RFC" value="5389"/>
+      </reference>
+      <reference anchor="RFC7991" target="https://www.rfc-editor.org/info/rfc7991">
+        <front>
+          <title>The "xml2rfc" Version 3 Vocabulary</title>
+          <author initials="P." surname="Hoffman" fullname="Paul Hoffman">
+            <organization/>
+          </author>
+          <date month="December" year="2016"/>
+        </front>
+        <seriesInfo name="RFC" value="7991"/>
+      </reference>
+      <reference anchor="NOISE" target="https://noiseprotocol.org/noise.pdf">
+        <front>
+          <title>The Noise Protocol Framework</title>
+          <author initials="T." surname="Perrin" fullname="Trevor Perrin">
+            <organization/>
+          </author>
+          <date year="2018"/>
+        </front>
+      </reference>
+      <reference anchor="IROH" target="https://iroh.computer">
+        <front>
+          <title>iroh — Peer-to-Peer Networking for Applications</title>
+          <author>
+            <organization>number 0</organization>
+          </author>
+        </front>
+      </reference>
+      <reference anchor="HOMA" target="https://homa.readthedocs.io">
+        <front>
+          <title>Homa — A Receiver-Driven Low-Latency Transport Protocol Using Network Priorities</title>
+          <author initials="J." surname="Ousterhout" fullname="John Ousterhout">
+            <organization/>
+          </author>
+          <date year="2017"/>
+        </front>
+      </reference>
+    </references>
+
+    <section anchor="app-done" numbered="true" toc="default">
+      <name>v0.3 Candidate — Explicit DONE Message Replacing Implicit ACK</name>
+      <t><strong>Status:</strong> design note / candidate. Not part of the
+      current wire format (v0.2).</t>
+      <section anchor="app-done-background" numbered="true" toc="default">
+        <name>Background: The Short-Message Loss Dead-Zone (v0.2 Problem)</name>
+        <t>For messages entirely within the unscheduled window (under 10 KB),
+        the receiver issues no GRANT and reassembles the message from the first
+        packet(s) alone. If such a message's first packet is lost, the receiver
+        has never seen the message and therefore cannot send RESEND; the sender
+        cannot know the message is lost without some acknowledgment.</t>
+        <t>v0.2 closes this with an <em>implicit ACK</em>: the RPC response
+        doubles as the request's acknowledgment. The transport keeps the
+        finished request in a <tt>retransmit</tt> window
+        (<tt>retransmit_timeout</tt>, conservative RTT estimate, default 500
+        ms) and re-sends chunk 0 if no <tt>confirm()</tt> arrived; the receiver
+        uses the re-sent chunk 0 to (re)establish reassembly and drive the rest
+        via GRANT/RESEND. This is entirely sender-side (no wire change) and
+        provably adds zero extra traffic when there is no loss.</t>
+      </section>
+      <section anchor="app-done-motivation" numbered="true" toc="default">
+        <name>Why a Candidate at All</name>
+        <t>The implicit-ACK design has three structural costs:</t>
+        <ol spacing="normal">
+          <li><t><strong>Response loss is handled at the RPC layer, not the
+          transport.</strong> If the response is lost, the request's transport
+          message is confirmed anyway, and recovery falls to the client's
+          at-least-once retry (<tt>attempt_timeout</tt>) plus server idempotent
+          replay. The RPC layer must keep
+          <tt>attempt_timeout &gt; retransmit_timeout + RTT</tt> to avoid racing
+          the sender's own poke — a coupling the transport should not
+          need.</t></li>
+          <li><t><strong>Only RPC requests get the window.</strong> Responses do
+          not retransmit; a response whose first packet is lost must wait for
+          the client to re-request. The transport is not self-contained.</t></li>
+          <li><t><strong><tt>confirm()</tt> is an RPC-layer concept.</strong>
+          The transport cannot tell "delivered" from "still in flight" without
+          being told by an upper layer.</t></li>
+        </ol>
+      </section>
+      <section anchor="app-done-design" numbered="true" toc="default">
+        <name>Candidate Design (v0.3)</name>
+        <ul>
+          <li><t>Add a <strong>DONE</strong> control message sent by the
+          receiver once it has reassembled a complete message: <tt>msg_id</tt>
+          plus an optional cumulative fingerprint/checksum.</t></li>
+          <li><t>The sender treats DONE as the release condition: the message
+          is removed from its state immediately (no linger, no retransmit
+          window) — the wire now carries explicit delivery confirmation instead
+          of inferring it from an application response.</t></li>
+          <li><t>This makes request and response loss symmetric: both are
+          transport-confirmed, and the RPC layer's <tt>attempt_timeout</tt>
+          becomes a pure backstop for a <em>lost DONE</em> (recoverable by the
+          existing at-least-once retry) rather than the primary recovery
+          path.</t></li>
+        </ul>
+      </section>
+      <section anchor="app-done-tradeoffs" numbered="true" toc="default">
+        <name>Trade-Offs (Why v0.2 Shipped Without It)</name>
+        <ul>
+          <li><t><strong>Wire change</strong>: new packet type, version/label
+          bump (Section <xref target="byte-order-and-labels" format="counter"/>).
+          v0.2 deliberately kept the wire format untouched (sender-only
+          fix).</t></li>
+          <li><t><strong>More receiver state</strong>: must track delivered
+          message IDs to emit DONE and avoid DONE-storms on reordered
+          delivery.</t></li>
+          <li><t><strong>DONE loss handling</strong>: a lost DONE reintroduces
+          the window it was meant to remove — it needs its own re-request or
+          timeout, trading one acknowledgment mechanism for another.</t></li>
+          <li><t><strong>Idempotent-replay value proposition unchanged</strong>:
+          at-least-once semantics already make application-level dedup
+          mandatory; DONE removes transport reliance on it but does not remove
+          the application requirement.</t></li>
+        </ul>
+      </section>
+    </section>
+  </back>
+</rfc>

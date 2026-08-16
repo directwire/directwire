@@ -1,6 +1,10 @@
 # Rust build artifacts
 /target
 
+# IETF draft build venv + xml2rfc reference-tracker cache
+ietf/.venv/
+ietf/tracker.log
+
 # Editor
 .vscode/
 .idea/

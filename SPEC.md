@@ -2,6 +2,8 @@
 
 > Status: **informative draft**. This document describes the target protocol and the behavior of the reference implementation. It is not yet a normative standard. Comments welcome via issues.
 
+> Standards-facing snapshot: `ietf/draft-directwire-agent-transport-00.xml` (buildable IETF Internet-Draft, RFC 7991 v3; see `ietf/README.md`). This SPEC.md remains the living source of truth for protocol content.
+
 ## 1. Scope
 
 This specification defines a transport layer for autonomous agents to discover, authenticate, and communicate with each other using cryptographic identities, without a central server or IP-based addressing as the primary identity.
@@ -109,3 +111,59 @@ The QUIC endpoint self-signs a certificate whose **public key equals the Node ID
 ## 10. Versioning
 
 This document is versioned; breaking changes will be accompanied by a domain-separated protocol label bump.
+
+## Appendix A. v0.3 candidate — explicit DONE message replacing implicit ACK
+
+**Status: design note / candidate. Not part of the current wire format (v0.2).**
+
+### Background: the short-message loss dead-zone (v0.2 problem)
+
+For messages entirely within the unscheduled window (< 10 KB), the receiver issues no GRANT
+and reassembles the message from the first packet(s) alone. If such a message's first packet
+is lost, the receiver **has never seen the message** and therefore cannot send RESEND; the
+sender cannot know the message is lost without some acknowledgment.
+
+v0.2 closes this with an **implicit ACK**: the RPC response doubles as the request's
+acknowledgment. The transport keeps the finished request in a `retransmit` window
+(`retransmit_timeout`, conservative RTT estimate, default 500 ms) and re-sends chunk 0 if
+no `confirm()` arrived; the receiver uses the re-sent chunk 0 to (re)establish reassembly
+and drive the rest via GRANT/RESEND. This is entirely sender-side (no wire change) and
+provably adds zero extra traffic when there is no loss (unit test `无丢包_confirm后_重发窗口零触发`).
+
+### Why a candidate at all
+
+The implicit-ACK design has three structural costs:
+
+1. **Response loss is handled at the RPC layer, not the transport.** If the response is
+   lost, the request's transport message is confirmed anyway, and recovery falls to the
+   client's at-least-once retry (`attempt_timeout`) + server idempotent replay. That works,
+   but the RPC layer must stay `attempt_timeout > retransmit_timeout + RTT` to avoid racing
+   the sender's own poke — a coupling the transport shouldn't need.
+2. **Only RPC requests get the window.** `send_vec` (responses) does not retransmit;
+   a response whose first packet is lost must wait for the client to re-request. The
+   transport is not self-contained.
+3. **`confirm()` is an RPC-layer concept.** The transport cannot tell "delivered" from
+   "still in flight" without being told by an upper layer.
+
+### Candidate design (v0.3)
+
+- Add a **DONE** control message (`PacketType::Done`), sent by the receiver once it has
+  reassembled a complete message: `msg_id` (+ optional cumulative fingerprint/checksum).
+- The sender treats DONE as the release condition: removes the message from its state
+  immediately (no linger, no retransmit window) — the wire now carries explicit delivery
+  confirmation instead of inferring it from an application response.
+- This makes request and response loss symmetric: both are transport-confirmed, and the
+  RPC layer's `attempt_timeout` becomes a pure backstop for a *lost DONE* (recoverable by
+  the existing at-least-once retry) rather than the primary recovery path.
+
+### Trade-offs (why v0.2 shipped without it)
+
+- **Wire change**: new packet type, version/label bump (§10). v0.2 deliberately kept the
+  wire format untouched (sender-only fix).
+- **More receiver state**: must track delivered `msg_id`s to emit DONE and avoid
+  DONE-storms on reordered delivery.
+- **DONE loss handling**: a lost DONE reintroduces the window it was meant to remove —
+  needs its own re-request or timeout, trading one ack mechanism for another.
+- **Idempotent-replay value proposition unchanged**: at-least-once semantics already make
+  application-level dedup mandatory; DONE removes transport reliance on it but does not
+  remove the application requirement.
