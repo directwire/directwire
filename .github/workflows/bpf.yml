@@ -31,9 +31,14 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
+          # linux-libc-dev (always published, version-independent) supplies the
+          # UAPI headers at /usr/include/x86_64-linux-gnu that the Makefile's
+          # -I/usr/include/$(uname -m)-linux-gnu needs. linux-headers-$(uname -r)
+          # is kernel-version-specific, frequently missing on freshly-booted
+          # runners (apt "Unable to locate package" -> exit 100), and installs
+          # to /usr/src anyway, not the path the compile actually uses.
           sudo apt-get install -y --no-install-recommends \
-            clang llvm libbpf-dev bpftool iproute2 \
-            linux-headers-$(uname -r)
+            clang llvm libbpf-dev bpftool iproute2 linux-libc-dev
 
       - name: Compile xdp_edge.o (clang -target bpf, -Wall -Werror)
         run: make -C crates/xdp-edge/bpf
