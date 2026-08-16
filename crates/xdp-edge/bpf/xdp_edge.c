@@ -24,6 +24,13 @@
 
 #include "xdp_edge.h"
 
+/* IP_DF（Don't Fragment）= 0x4000。部分内核 UAPI 的 linux/ip.h 里它由
+ * libc-compat 条件导出，-target bpf 编译时可能缺失（CI 实测踩到），
+ * 这里保险补定义；若已存在则跳过，避免重定义警告撞上 -Werror。 */
+#ifndef IP_DF
+#define IP_DF 0x4000
+#endif
+
 /* ---------------- BPF Maps ---------------- */
 
 /* 后端表：索引 -> 后端内网 IP（IPIP 外层目的地） */
