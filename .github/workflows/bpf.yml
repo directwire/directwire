@@ -30,15 +30,24 @@ jobs:
 
       - name: Install dependencies
         run: |
-          sudo apt-get update
-          # linux-libc-dev (always published, version-independent) supplies the
-          # UAPI headers at /usr/include/x86_64-linux-gnu that the Makefile's
-          # -I/usr/include/$(uname -m)-linux-gnu needs. linux-headers-$(uname -r)
-          # is kernel-version-specific, frequently missing on freshly-booted
-          # runners (apt "Unable to locate package" -> exit 100), and installs
-          # to /usr/src anyway, not the path the compile actually uses.
-          sudo apt-get install -y --no-install-recommends \
-            clang llvm libbpf-dev bpftool iproute2 linux-libc-dev
+          # apt failures surface as ::error:: annotations (visible on the run
+          # page without log access). linux-libc-dev supplies the UAPI headers
+          # at /usr/include/x86_64-linux-gnu that the Makefile's -I path needs;
+          # linux-headers-$(uname -r) is version-coupled and installs to
+          # /usr/src, not that path.
+          if ! sudo apt-get update >/tmp/aptu.log 2>&1; then
+            echo "::error::apt-get update failed"
+            tail -6 /tmp/aptu.log | sed 's/^/::error::/' || true
+            exit 1
+          fi
+          for p in clang llvm libbpf-dev bpftool iproute2 linux-libc-dev; do
+            if ! sudo apt-get install -y --no-install-recommends "$p" >/tmp/apt.log 2>&1; then
+              echo "::error::apt install failed for package: $p"
+              grep -m2 -E "E:|Unable|has no installation candidate" /tmp/apt.log | sed 's/^/::error::/' || true
+              exit 1
+            fi
+          done
+          echo "::notice::deps installed: clang llvm libbpf-dev bpftool iproute2 linux-libc-dev"
 
       - name: Compile xdp_edge.o (clang -target bpf, -Wall -Werror)
         run: make -C crates/xdp-edge/bpf
