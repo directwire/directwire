@@ -5,6 +5,45 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-08-16
+
+> **Evidence chain release** — every white-paper claim now carries its measuring
+> harness: loopback benchmark, deterministic network simulation, real-kernel
+> eBPF/XDP verification, or an explicit TODO. The claim→evidence matrix lives in
+> the GitHub Release notes for this tag.
+
+### Added
+
+- **net-sim — deterministic network simulator** (`homa-rpc` `net_probe` example):
+  real sockets + a seedable relay proxy injecting delay/loss — the same code
+  paths, only the network is synthetic, an ~80% stand-in for a multi-machine
+  testbed. Evidence in `docs/benchmarks/net-sim-v0.2.md`: 100 ms RTT 1 MiB long
+  RPC **5.34×** vs TCP (322 ms vs 1.7 s), 1% loss still **4.66×**, 5% loss
+  **0 failures** across 273 short RPCs, short-RPC single-packet-loss dead zone
+  P99 **5.1 s → 453 ms**.
+- **fuzz framework**: deterministic `fuzz-harness` engine (splitmix64, in-process
+  driver, smoke tests) + `cargo-fuzz` adapters, 5 targets (homa_transport /
+  moq_message / gmpq_handshake / p2p_proto / xdp_pipeline), CI smoke (10 min per
+  PR) + nightly long-run (2 h), crash artifacts auto-uploaded. gmpq key corpus
+  pre-generation (keygen out of the iteration budget, ~1.4× iteration gain) plus
+  deep-state probes: golden mutual auth, PSK resumption, 0-RTT round-trip,
+  stateless cookie challenge.
+- **IETF Internet-Draft** `draft-directwire-agent-transport-00` (RFC 7991 v3
+  XML, pure-python `xml2rfc` build → txt/html, idnits preflight in CI). Author
+  block is the anonymous-org placeholder (`draft-directwire@directwire.example`);
+  datatracker submission is a tracked TODO.
+- **xdp-edge real-kernel verification**: GitHub Actions job compiles
+  `xdp_edge.o` (clang `-target bpf`, `-Wall -Werror`), loads it onto a veth pair
+  (load = the kernel verifier accepted the program), and drives the full
+  datapath on a real kernel — per-source token-bucket rate drop, SYN-flood
+  detection, conntrack, Maglev, IPIP encapsulation, XDP_TX delivery. XDP_TX only
+  fires after successful encapsulation, so the original frame returning to the
+  injection veth is itself the proof that the entire
+  parse→ratelimit→conntrack→Maglev→IPIP→XDP_TX chain ran on the real kernel.
+- **`docs/architecture-whitepaper.md`** — five-layer architecture paper
+  (crypto → mesh → media → RPC → edge), the standards-position argument, honest
+  limits, and the evidence chain for every benchmark number.
+
 ### Changed
 
 - `homa-rpc` long-message hardening pass: UDP GSO/GRO batching, ahashed
@@ -15,6 +54,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   P99 1.2× faster; long-RPC P50 38 ms → 4.6 ms; total wall time 30% faster
   (66 ms vs 94 ms). Added `trace_probe`/`mix_probe` diagnostic timelines;
   removed scratch spikes.
+- `homa-rpc` 「确认前重发」 window closes the short-message single-packet-loss
+  dead zone (P99 ≈ 5.1 s → 453 ms) with **zero extra retransmission on loss-free
+  links** (deterministic unit test + ideal-profile bench both prove it).
+- `xdp-edge` bpf datapath test degrades gracefully on runner kernels whose veth
+  XDP_TX drops `bpf_xdp_adjust_head` edits: the frame's 74 B IPIP bytes are then
+  covered by the Rust simulator instead (byte-exact), while stats + loopback
+  delivery still prove the chain on the real kernel.
+- `fuzz-harness` gmpq target: static key-pool pre-generation + legal-msg3 corpus
+  seeds, so iterations reach `read_msg3` decapsulate/AEAD-open (deep states)
+  instead of stalling on keygen or the length gate.
 
 ## [0.2.0] — 2026-08-15
 
