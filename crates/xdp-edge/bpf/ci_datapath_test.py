@@ -171,6 +171,12 @@ def attach():
 
 def fill_maps():
     log("预填 config / backends / conntrack")
+    # libbpf btf__resolve_size 把 map 的 value_size 上取整到 8 字节对齐：
+    #   edge_config  44B -> 48B
+    #   backend_info 12B -> 16B
+    # bpftool map update 要求 value 字节数精确 == value_size，多出的对齐填充
+    # 写零即可（CI 实测 error: value expected 48 bytes got 44）。
+    PAD4 = b"\x00\x00\x00\x00"
     cfg = struct.pack(
         "<QQQII4s6s2s",
         65536,                     # rate_per_ns_fp: 1 token/ns（16.16 定点，远大于需要）
@@ -181,7 +187,7 @@ def fill_maps():
         socket.inet_aton(GATEWAY_IP),
         bytes.fromhex("112233445566"),
         b"\x00\x00",
-    )
+    ) + PAD4
     # backend.ip = 10.0.0.100。字段是 host 序 __u32，BPF 直接赋给外层头
     # __be32 daddr（无字节序转换）；x86 小端上 wire 字节就是内存字节，要显示
     # 0A 00 00 64 就必须按 little-endian 存这个整数值：
@@ -191,7 +197,7 @@ def fill_maps():
         "<I6sH",
         int.from_bytes(socket.inet_aton(BACKEND_IP), "little"),
         bytes.fromhex("aabbccddeeff"), 0,
-    )
+    ) + PAD4   # backend_info 12B -> value_size 16B（8 字节对齐）
     ck = SRC + DST + struct.pack("!HH", SPORT, DPORT) + b"\x06" + b"\x00\x00\x00"
     # conn_value { u32 backend_idx; u64 last_seen_ns; } 在 bpf 目标上有 4B
     # 对齐填充，实际大小 16B（非 12B）；bpftool map update 的 value 必须精确
@@ -228,7 +234,7 @@ def test_rate_drop():
         0,         # rate_burst = 0
         1_000_000_000, 8, 2, socket.inet_aton(GATEWAY_IP),
         bytes.fromhex("112233445566"), b"\x00\x00",
-    )
+    ) + b"\x00\x00\x00\x00"   # value_size 48B（8 字节对齐）
     map_update(bpf_map_id("config"), b"\x00\x00\x00\x00", cfg)
 
     v0_mac, v1_mac = mac_of(VETH0), mac_of(VETH1)
