@@ -48,12 +48,13 @@ jobs:
               exit 1
             fi
           done
-          # bpftool 判定不能靠 command -v：runner 镜像预装了一个
-          # linux-tools 包装脚本（/usr/sbin/bpftool），版本相关的真二进制
-          # 缺失，导致 `version` 直接失败。以 `bpftool version` 能否跑通为准；
-          # 不行就从官方 libbpf/bpftool v7.7.0 源码构建并装到 /usr/local/bin
-          # （PATH 优先于 /usr/sbin，天然压过坏包装）。
-          if ! bpftool version >/dev/null 2>&1; then
+          # runner 镜像预装了一个 linux-tools 包装脚本（/usr/sbin/bpftool），
+          # 版本相关的真二进制缺失 → `version` 直接失败并提示装 linux-tools-*。
+          # 统一以全路径 /usr/local/bin/bpftool 为准：既绕开 bash 把命令名哈希
+          # 到坏包装的缓存，也绕开包装脚本对 PATH 的抢占；不行才源码构建装过去。
+          # 后续步骤（sudo python3 测试、bpftool prog show）都在新 shell 里按
+          # PATH 解析，/usr/local/bin 排在 /usr/sbin 前，天然取到好二进制。
+          if ! /usr/local/bin/bpftool version >/dev/null 2>&1; then
             echo "::notice::no usable bpftool — building from source (libbpf/bpftool v7.7.0)"
             git clone --depth 1 --branch v7.7.0 https://github.com/libbpf/bpftool /tmp/bpftool >/dev/null 2>&1 || {
               echo "::error::bpftool clone failed"; exit 1; }
@@ -64,12 +65,14 @@ jobs:
               tail -10 /tmp/bpftool_build.log | sed 's/^/::error::/' || true
               exit 1; }
             sudo cp /tmp/bpftool/src/bpftool /usr/local/bin/bpftool
+            hash -r
           fi
-          if ! bpftool version 2>/tmp/bpftool_ver.err; then
-            echo "::error::bpftool version still failing"
-            cat /tmp/bpftool_ver.err | sed 's/^/::error::/' || true
+          if ! /usr/local/bin/bpftool version 2>/tmp/bpftool_ver.err; then
+            echo "::error::bpftool (/usr/local/bin) version still failing"
+            tail -20 /tmp/bpftool_ver.err | sed 's/^/::error::/' || true
             exit 1
           fi
+          echo "bpftool: $(/usr/local/bin/bpftool version 2>/dev/null | head -1)"
           echo "clang: $(clang --version 2>/dev/null | head -1 || echo MISSING)"
           echo "::notice::deps installed + bpftool runnable"
 
