@@ -31,7 +31,8 @@ jobs:
         run: ./ietf/build.sh
 
       - name: Verify generated artifacts are current
-        run: git diff --exit-code -- ietf/ || (echo "::: ietf/ artifacts out of date — run ./ietf/build.sh and commit the regenerated .txt/.html" && exit 1)
+        run: |
+          git diff --exit-code -- ietf/ || { echo "::: ietf/ artifacts out of date — run ./ietf/build.sh and commit the regenerated .txt/.html"; exit 1; }
 
       - name: idnits preflight (advisory)
         run: |

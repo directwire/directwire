@@ -30,11 +30,14 @@ if [ -z "$X2R" ]; then
   PY="$(pick_python)"
   echo ">> creating .venv with $PY"
   "$PY" -m venv .venv
+  # Pin the exact xml2rfc version that produced the committed artifacts:
+  # a newer release could change rendering and trip the "artifacts are
+  # current" check in CI. Bump the version + regenerate + commit together.
   if [ -x ".venv/bin/pip" ]; then
-    .venv/bin/pip install --quiet xml2rfc
+    .venv/bin/pip install --quiet xml2rfc==3.34.0
     X2R=".venv/bin/xml2rfc"
   else
-    .venv/Scripts/pip.exe install --quiet xml2rfc
+    .venv/Scripts/pip.exe install --quiet xml2rfc==3.34.0
     X2R=".venv/Scripts/xml2rfc.exe"
   fi
 fi
