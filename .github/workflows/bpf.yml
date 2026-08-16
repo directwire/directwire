@@ -102,6 +102,9 @@ jobs:
         run: |
           rc=0
           sudo python3 crates/xdp-edge/bpf/ci_datapath_test.py >/tmp/dp.log 2>&1 || rc=$?
+          # 测试的 ::warning::（如 veth adjust_head quirk 说明）只有在步骤的实时输出里
+          # 才会被 runner 解析成注解；成功路径若不透传就不可见，这里显式放行。
+          grep -E '^::(warning|notice)::' /tmp/dp.log || true
           if [ $rc -ne 0 ]; then
             echo "::error::datapath test failed (exit $rc)"
             tail -40 /tmp/dp.log | sed 's/^/::error::/' || true
