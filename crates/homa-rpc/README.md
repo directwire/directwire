@@ -74,8 +74,15 @@ let resp = client.call(server.addr(), b"ping")?;                     // at-least
 
 ## 已知 TODO / 技术债
 
-- **长消息剩余差距为结构性协议税**（授权往返 + SRPT 让位），优化的边际在 io_loop 锁内泵送：
-  可把分片构建从收包线程移出到发送线程（描述符级零拷贝泵送），预计省 ~170µs/方向，风险在传输核心路径。
+- **长消息剩余差距为结构性协议税**（授权往返 + SRPT 让位）。实测
+  （2026-08-16，`mix_probe` + `debug_stats`，550 混合负载含 50×1MiB）：
+  io_loop **锁内泵送不是争用点**——`io_lock_avg_batch` 16.9µs（持锁）、
+  `io_lock_wait_batch` 0.6µs（等锁）、`io_lock_per_pkt` 0.92µs，收包线程从不等锁。
+  旧注「把分片构建移出收包线程」的机制**被实测否定**；~170µs/方向的真实来源是
+  每分片 `Packet::encode` 的一次 Vec 分配 + 负载 memcpy（≈250ns × 874 ≈ 200µs/1MiB
+  方向）。若做真正的零拷贝 sendmsg（header iovec + 负载切片，内核聚集，免 Rust 侧
+  拼包拷贝）可省这笔——但那是 ~20% 收益、改核心传输路径，随多机测试床一起待办，
+  不在单机 loopback 上冒险。
 - 8 级 QoS 队列已实现发送侧插队（txqueue.rs，有单测），但 loopback 上无网卡队列，效果仅限本机调度顺序。
 - overcommit（默认 K=2）+ starve_threshold 强制授权已防饿死；K 的网络侧最优值未调。
 - BUSY 仅定义与处理，默认阈值极大不触发。
