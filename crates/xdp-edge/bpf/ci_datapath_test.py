@@ -69,7 +69,14 @@ def bpf_map_id(name):
 
 
 def map_update(mid, key, value):
-    sh(f"bpftool map update id {mid} key {key.hex()} value {value.hex()}")
+    """bpftool v7 的 key/value 是『每 argv 元素一个字节』的逐字节 token 解析
+    （parse_bytes: strtoul 单 token），不是连续 hex 串。传 `key 00000000` 会把
+    整串当 1 个十进制字节，随后为了凑够 key_size 把下一个关键字 `value` 也喂给
+    strtoul → 'error parsing byte: value'（CI 实测踩到）。必须显式 `hex` 前缀
+    （base=16）+ 逐字节 2 位 hex token。"""
+    def toks(b):
+        return " ".join(f"{x:02x}" for x in b)
+    sh(f"bpftool map update id {mid} key hex {toks(key)} value hex {toks(value)}")
 
 
 def csum16(data):
@@ -115,11 +122,18 @@ def send_raw(iface, frame):
         s.send(frame)
 
 
-def sniff_ipip(iface, timeout_s, want_daddr):
-    """在 iface 上收原始帧，找外层 IPIP（proto=4）且 daddr 匹配的，返回帧或 None。"""
+def sniff_ipip(iface, timeout_s, want_daddr, inject=None):
+    """在 iface 上收原始帧，找外层 IPIP（proto=4）且 daddr 匹配的，返回帧或 None。
+
+    必须先绑定 AF_PACKET 再注入：veth 上 XDP_TX 在 send_raw 的同一 syscall 内
+    同步完成，先发后绑会让封装帧落在『无 socket 接收』的收包路径上被丢弃，
+    sniff 必漏 → 断言必败（发送/绑定竞态）。
+    """
     deadline = time.time() + timeout_s
     with socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(3)) as s:
         s.bind((iface, 0))
+        if inject is not None:
+            inject()
         s.settimeout(0.25)
         while time.time() < deadline:
             try:
@@ -193,8 +207,8 @@ def test_forward():
     log("测试①: 连接跟踪命中 → IPIP 封装 XDP_TX 转发")
     v0_mac, v1_mac = mac_of(VETH0), mac_of(VETH1)
     frame = build_syn_pkt(v1_mac, v0_mac, "10.0.0.2", "10.0.0.1", SPORT, DPORT)
-    send_raw(VETH1, frame)
-    out = sniff_ipip(VETH1, timeout_s=2.0, want_daddr=BACKEND_IP)
+    out = sniff_ipip(VETH1, timeout_s=2.0, want_daddr=BACKEND_IP,
+                     inject=lambda: send_raw(VETH1, frame))
     if out is None:
         raise SystemExit("FAIL: 没有收到 IPIP 封装包（转发路径未生效）")
     outer = out[14:34]
@@ -219,8 +233,8 @@ def test_rate_drop():
 
     v0_mac, v1_mac = mac_of(VETH0), mac_of(VETH1)
     frame = build_syn_pkt(v1_mac, v0_mac, "10.0.0.9", "10.0.0.1", SPORT, DPORT)
-    send_raw(VETH1, frame)
-    out = sniff_ipip(VETH1, timeout_s=1.0, want_daddr=BACKEND_IP)
+    out = sniff_ipip(VETH1, timeout_s=1.0, want_daddr=BACKEND_IP,
+                     inject=lambda: send_raw(VETH1, frame))
     if out is not None:
         raise SystemExit("FAIL: 限速归零后仍收到转发包")
 
