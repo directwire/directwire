@@ -1,6 +1,13 @@
 # bpf/ —— XDP 内核数据面（形态一）
 
-本目录是 xdp-edge 的 Linux 内核侧实现，需在 Linux 上构建（本仓库开发机为 Windows，无 clang，故此处交付源码 + 构建脚本，由 CI / 目标一体机执行构建）。
+本目录是 xdp-edge 的 Linux 内核侧实现。
+
+> **本机工具链脚注（2026-08）**：开发机为 Windows，LLVM 已装（`winget install LLVM.LLVM`，
+> clang 22.1.8）。`clang -target bpf` 本机可用——已验证能以 `-O2 -Wall -Werror`
+> 产出合法 BPF 对象（`.text`/`xdp`/`license` 段齐全）。但 `xdp_edge.c` 依赖 Linux
+> 内核头文件（`<linux/*.h>`、`<bpf/bpf_helpers.h>`），Windows 本机无此头文件，
+> 完整编译与真内核加载/数据面验证在 CI 完成（见「CI 实测」）。如需本机完整构建，
+> 在 WSL/容器内执行下方「构建」命令即可。
 
 ## 构建
 
@@ -25,6 +32,22 @@ sudo make unload DEV=eth0
 | `xdp_edge.c` | XDP 主程序：解析 → 令牌桶限速 → SYN flood 检测 → 连接跟踪 → Maglev 查表 → IPIP 封装 XDP_TX |
 | `xdp_edge.h` | 控制面/数据面共享 ABI：maps、配置、统计下标 |
 | `Makefile` | `clang -target bpf` 构建与 `ip link` 加载 |
+| `ci_datapath_test.py` | CI 真内核数据面实测：编译 → veth 挂载 → 注入包验证 XDP_TX 转发 / XDP_DROP 限速 / stats 计数 |
+
+## CI 实测（ubuntu runner 真内核）
+
+`.github/workflows/bpf.yml` 在每次改动 bpf/ 时自动执行，不需要任何实机设备：
+
+1. `make` —— `clang -target bpf -O2 -Wall -Werror` 编译，产出 `xdp_edge.o`；
+2. `ci_datapath_test.py` —— 建 veth 对挂 XDP（验证器接受即加载成功），预填
+   `config`/`backends`/`conntrack`，从 veth1 注入自制 TCP SYN，断言收到 IPIP
+   封装后的 XDP_TX 转发包（外层 proto=4、saddr=网关、daddr=后端、内层 TCP 保留）；
+3. 再把限速速率归零注入新源 IP，断言被 XDP_DROP 且 `stats[ST_DROP_RATE]` 增长；
+4. ICMP ping 穿过钩子（PASS 路径）作旁证。
+
+这说明整条「解析→限速→连接跟踪→封装→转发 / 丢弃」数据面在真实内核里跑通，
+不只是编译过。测试脚本为纯 python3 标准库 + `iproute2`/`bpftool`，可在任意
+Linux 机器（`sudo python3 ci_datapath_test.py`）复现。
 
 ## 与用户态模拟器的对应关系
 

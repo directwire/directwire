@@ -1,0 +1,53 @@
+name: xdp-bpf
+
+# xdp-edge Linux 实机验证（#22）——在 ubuntu runner 的真内核上完成，
+# 不依赖任何人的本机设备。
+#
+#   1. clang -target bpf 编译 xdp_edge.o（-Wall -Werror，验证器之前先过编译器）；
+#   2. 挂到 veth 对的 XDP 钩子（加载 = 内核验证器接受程序）；
+#   3. 注入自制 TCP SYN，断言收到 IPIP 封装后的 XDP_TX 转发包；
+#   4. 限速归零 → 断言新源被 XDP_DROP 且 stats 计数增长；
+#   5. ICMP ping PASS 路径旁证。
+# 测试脚本: crates/xdp-edge/bpf/ci_datapath_test.py
+
+on:
+  push:
+    paths:
+      - 'crates/xdp-edge/bpf/**'
+      - '.github/workflows/bpf.yml'
+  pull_request:
+    paths:
+      - 'crates/xdp-edge/bpf/**'
+      - '.github/workflows/bpf.yml'
+  workflow_dispatch:
+
+jobs:
+  dataplane:
+    name: compile + load + datapath (veth)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang llvm libbpf-dev bpftool iproute2 \
+            linux-headers-$(uname -r)
+
+      - name: Compile xdp_edge.o (clang -target bpf, -Wall -Werror)
+        run: make -C crates/xdp-edge/bpf
+
+      - name: Inspect object
+        run: |
+          file crates/xdp-edge/bpf/xdp_edge.o
+          llvm-objdump -h crates/xdp-edge/bpf/xdp_edge.o
+
+      - name: Datapath test (attach + forward + rate-drop + stats)
+        run: sudo python3 crates/xdp-edge/bpf/ci_datapath_test.py
+
+      - name: Loaded program / attach info
+        if: always()
+        run: |
+          bpftool prog show 2>/dev/null | head -20 || true
+          bpftool net show 2>/dev/null || true
