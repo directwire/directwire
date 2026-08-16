@@ -1,5 +1,5 @@
 //! node-b: the passive side. Registers to the relay, waits for node-a to punch, auto-acks.
-//! usage: cargo run --example node_b -- [--relay 127.0.0.1:9100] [--seed 2]
+//! usage: cargo run --example node_b -- [--relay 127.0.0.1:9100] [--seed 2 | --key-file path]
 
 use std::net::SocketAddr;
 
@@ -17,9 +17,23 @@ async fn main() {
     let relay: SocketAddr = arg_flag("--relay")
         .and_then(|s| s.parse().ok())
         .unwrap_or(SocketAddr::from(([127, 0, 0, 1], 9100)));
-    let seed: u8 = arg_flag("--seed").and_then(|s| s.parse().ok()).unwrap_or(2);
-
-    let identity = NodeIdentity::from_seed([seed; 32]);
+    let identity = match arg_flag("--key-file") {
+        // Stable identity across restarts: load the seed if present, else generate + persist it
+        Some(path) => {
+            let id = NodeIdentity::load_or_generate(&path).expect("load/generate identity key file");
+            eprintln!(
+                "[node-b] identity from key file {} = {} (hex: {})",
+                path,
+                id.node_id(),
+                id.node_id().to_hex()
+            );
+            id
+        }
+        None => {
+            let seed: u8 = arg_flag("--seed").and_then(|s| s.parse().ok()).unwrap_or(2);
+            NodeIdentity::from_seed([seed; 32])
+        }
+    };
     let mut cfg = NodeConfig::new(relay);
     cfg.probe_interval = std::time::Duration::from_millis(500);
     #[cfg(feature = "gm-pq")]

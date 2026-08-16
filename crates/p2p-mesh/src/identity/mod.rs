@@ -9,6 +9,9 @@
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use sha2::{Digest, Sha256};
 use std::fmt;
+use std::io;
+use std::path::Path;
+use zeroize::Zeroizing;
 
 /// Node ID: ed25519 public key (32 bytes)
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -89,8 +92,52 @@ impl NodeIdentity {
         self.sk.sign(msg).to_bytes()
     }
 
-    pub(crate) fn seed_bytes(&self) -> [u8; 32] {
-        self.sk.to_bytes()
+    /// The ed25519 seed (== the signing key bytes). Wrapped in `Zeroizing` so the buffer is
+    /// cleared on drop — the seed IS the identity, never let it linger in plain memory.
+    pub(crate) fn seed_bytes(&self) -> Zeroizing<[u8; 32]> {
+        Zeroizing::new(self.sk.to_bytes())
+    }
+
+    /// Persist the seed to a file (raw 32 bytes == the ed25519 signing key).
+    ///
+    /// This file IS the identity: keep it in a restricted location. Best-effort `0600`
+    /// permissions on Unix; no-op on Windows. Encryption at rest (key wrap) is a
+    /// compliance/red-line follow-up, deliberately not implemented here.
+    pub fn save(&self, path: impl AsRef<Path>) -> io::Result<()> {
+        let bytes = self.seed_bytes();
+        std::fs::write(path.as_ref(), &*bytes)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(path.as_ref(), std::fs::Permissions::from_mode(0o600))?;
+        }
+        Ok(())
+    }
+
+    /// Load a persisted seed (must be exactly 32 bytes).
+    pub fn load(path: impl AsRef<Path>) -> io::Result<Self> {
+        let raw = Zeroizing::new(std::fs::read(path.as_ref())?);
+        if raw.len() != 32 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "identity seed file must be exactly 32 bytes",
+            ));
+        }
+        let mut seed = [0u8; 32];
+        seed.copy_from_slice(&raw);
+        Ok(Self::from_seed(seed))
+    }
+
+    /// Load the seed if present; otherwise generate a fresh identity, persist it, and return it.
+    /// This is what makes a NodeId recoverable across process restarts (stable identity).
+    pub fn load_or_generate(path: impl AsRef<Path>) -> io::Result<Self> {
+        if path.as_ref().exists() {
+            Self::load(path)
+        } else {
+            let id = Self::generate();
+            id.save(path)?;
+            Ok(id)
+        }
     }
 }
 
@@ -147,5 +194,45 @@ mod tests {
         assert_eq!(a.node_id(), b.node_id());
         // short display form is 16 chars
         assert_eq!(nid.short().len(), 16);
+    }
+
+    #[test]
+    fn seed_save_load_roundtrip() {
+        let dir = std::env::temp_dir().join(format!("dw-identity-save-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("node.seed");
+        let id = NodeIdentity::from_seed([7u8; 32]);
+        id.save(&path).unwrap();
+        let loaded = NodeIdentity::load(&path).unwrap();
+        assert_eq!(loaded.node_id(), id.node_id(), "load must recover the same identity");
+        assert!(id.sign(b"persisted").len() == 64);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn load_missing_or_wrong_length_errors() {
+        let dir = std::env::temp_dir().join(format!("dw-identity-bad-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let missing = dir.join("missing.seed");
+        assert!(NodeIdentity::load(&missing).is_err(), "missing file must error");
+        let bad = dir.join("bad.seed");
+        std::fs::write(&bad, [1u8; 31]).unwrap();
+        assert!(NodeIdentity::load(&bad).is_err(), "non-32-byte file must error");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn load_or_generate_is_idempotent() {
+        let dir = std::env::temp_dir().join(format!("dw-identity-generate-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("node.seed");
+        let a = NodeIdentity::load_or_generate(&path).unwrap();
+        let b = NodeIdentity::load_or_generate(&path).unwrap();
+        assert_eq!(
+            a.node_id(),
+            b.node_id(),
+            "second load_or_generate must reuse the persisted identity"
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

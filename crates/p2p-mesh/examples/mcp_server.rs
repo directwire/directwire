@@ -24,17 +24,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .iter()
         .position(|a| a == "--relay")
         .and_then(|i| args.get(i + 1))
-        .ok_or("usage: mcp_server --relay HOST:PORT [--seed N] [--gm-pq]")?;
+        .ok_or("usage: mcp_server --relay HOST:PORT [--seed N | --key-file path] [--gm-pq]")?;
     let relay_addr: std::net::SocketAddr = relay.parse()?;
 
-    let seed = args
+    let identity = if let Some(path) = args
         .iter()
-        .position(|a| a == "--seed")
+        .position(|a| a == "--key-file")
         .and_then(|i| args.get(i + 1))
-        .and_then(|s| s.parse::<u8>().ok());
-    let identity = match seed {
-        Some(n) => NodeIdentity::from_seed([n; 32]),
-        None => NodeIdentity::generate(),
+    {
+        // Stable identity across restarts: load the seed if present, else generate + persist it
+        NodeIdentity::load_or_generate(path)?
+    } else {
+        let seed = args
+            .iter()
+            .position(|a| a == "--seed")
+            .and_then(|i| args.get(i + 1))
+            .and_then(|s| s.parse::<u8>().ok());
+        match seed {
+            Some(n) => NodeIdentity::from_seed([n; 32]),
+            None => NodeIdentity::generate(),
+        }
     };
 
     let mut cfg = NodeConfig::new(relay_addr);

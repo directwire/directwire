@@ -5,6 +5,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added (p2p-mesh security/identity trio)
+
+- **Zeroize audit**: the `zeroize` feature is now enabled on `x25519-dalek` and
+  `ed25519-dalek`, so relay-path ephemerals (`StaticSecret`/`SharedSecret`) and the
+  ed25519 `SigningKey` all clear on drop. `NodeIdentity::seed_bytes` returns a
+  `Zeroizing` buffer. The guarantee is enforced at compile time by
+  `p2p-mesh/tests/key_hygiene.rs` (mirrors `gm-pq-stack`).
+- **GM-PQ pin-file trust anchor**: `NodeConfig.gmpq_pin_file` pins the SM2 public
+  keys allowed to authenticate the hybrid handshake (TOFU upgraded to explicit
+  pinning; `Error::PeerAuth` on mismatch, load failure aborts `Node::start` — no
+  silent downgrade). New `p2p_mesh::gmpq::pin_fingerprint` helper generates pin
+  lines; integration tests in `p2p-mesh/tests/pin_anchor_integration.rs`.
+- **NodeId identity persistence**: `NodeIdentity::save`/`load`/
+  `load_or_generate` persist the ed25519 seed as a raw 32-byte file (best-effort
+  `0600` on Unix). Every example accepts `--key-file <path>` so a node restarts
+  with a stable NodeId instead of a fresh random identity per process.
+
 ## [0.3.0] — 2026-08-16
 
 > **Evidence chain release** — every white-paper claim now carries its measuring

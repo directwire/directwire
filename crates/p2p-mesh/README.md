@@ -40,8 +40,8 @@ iroh v1.0 (2026-06) validated that the "public-key addressing + hole-punch direc
 ## Quick start
 
 ```bash
-cargo test                # all 27 tests (incl. loopback end-to-end: relay fallback/handshake/punch upgrade/multi-peer concurrency)
-cargo test --features gm-pq   # enables the GM-PQ channel: +3 integration tests (30 total)
+cargo test                # unit + loopback end-to-end suite (relay fallback/handshake/punch upgrade/multi-peer)
+cargo test --features gm-pq   # + the GM-PQ channel integration tests (pin-anchor, BIND, hybrid handshake)
 cargo build --examples    # three-process demo
 
 # terminal 1
@@ -54,6 +54,19 @@ cargo run --example node_a -- --relay 127.0.0.1:9100 --peer <node-b-hex>
 # GM-PQ demo (needs --features gm-pq build; add --gmpq on both ends)
 cargo run --features gm-pq --example node_b -- --relay 127.0.0.1:9100 --seed 2 --gmpq
 cargo run --features gm-pq --example node_a -- --relay 127.0.0.1:9100 --peer <node-b-hex> --gmpq
+```
+
+## Stable identity (`--key-file`)
+
+`NodeIdentity::save` / `load` / `load_or_generate` persist the ed25519 seed as a raw 32-byte file
+(best-effort `0600` permissions on Unix; the file IS the identity — keep it protected, encryption at
+rest is a compliance follow-up). Every example accepts `--key-file <path>`: pass the same file and
+the NodeId is stable across restarts — a node restarts as itself, reachable at the same public key.
+Without it, examples fall back to `--seed` (deterministic demo) or a fresh random identity per process.
+
+```bash
+# same file, restarted twice -> identical NodeId both times
+cargo run --example node_b -- --relay 127.0.0.1:9100 --key-file node-b.seed
 ```
 
 Expected output: first `via=Relay` message → `punch result direct=Some(...)` → `★ path switch Relay -> Direct` → subsequent `via=Direct` messages → a latency comparison table.
@@ -70,9 +83,14 @@ the relay still only ever sees ciphertext.
 - **DoS protection**: the server replies with a Cookie first (`CookieIssuer`, client_tag bound to the peer's NodeId); the client retries with the cookie before handshake state is allocated.
 - **Identity binding**: after the handshake both sides exchange BIND (`BND1 || ed25519 NodeId || signature`), signing the message
   `b"p2p-mesh/gmpq-bind" || sm3(gm_pk) || node_id || session_id`.
-  **Security semantics**: the GM-PQ handshake layer is TOFU (`AllowAllAnchor`, SM2 public keys not pre-authenticated), but BIND strongly binds the session to the authenticated
-  ed25519 NodeId — an MITM splitting the handshake in two would get **different session_ids**, so a forwarded BIND is rejected.
-  In production, replace `AllowAllAnchor` with a `PinFileAnchor` that pre-installs the peer's SM2 public key.
+  **Security semantics**: the GM-PQ handshake layer's trust anchor is pluggable. Set `NodeConfig.gmpq_pin_file`
+  to pin the SM2 public keys allowed to authenticate (TOFU upgraded to explicit pinning); without it the anchor
+  stays `AllowAllAnchor` (tests/demos only). BIND additionally binds the session to the authenticated ed25519
+  NodeId — an MITM splitting the handshake in two gets **different session_ids**, so a forwarded BIND is rejected.
+- **Pin-file trust anchor** (`NodeConfig.gmpq_pin_file`): one line per trusted peer SM2 public key,
+  `name <64-hex SM3 fingerprint>` (generate fingerprints with `p2p_mesh::gmpq::pin_fingerprint`). A configured
+  file that fails to load aborts `Node::start` — no silent downgrade to TOFU. Unpinned peers are rejected at the
+  handshake (`Error::PeerAuth`) before any session data flows.
 - **Fallback**: when the peer has GM-PQ off, channel frames are silently ignored; after a 3s timeout the X25519+ed25519 fallback kicks in automatically (`GmCheck` carries a generation counter so stale timers can't misfire).
 - **Priority**: GM-PQ session ready > X25519 session > queue + initiate handshake; the direct (QUIC) path is unaffected and still uses QUIC TLS.
 - **MVP cuts**: no session tickets / 0-RTT (avoids cross-connection TicketCache sharing and idempotency red lines).
@@ -106,11 +124,11 @@ In toB private deployments the relay is customer-hosted, so the model becomes: r
 
 ## Tech debt / known TODOs
 
-1. ~~relay session static DH has no forward secrecy~~ ✅ done: X25519 ephemeral DH + ed25519 identity signature (Noise IK semantics), fresh keys per session. Residual: ephemeral private keys are not zeroized.
+1. ~~relay session static DH has no forward secrecy~~ ✅ done: X25519 ephemeral DH + ed25519 identity signature (Noise IK semantics), fresh keys per session. ✅ key hygiene: ephemeral `StaticSecret`/`SharedSecret` and the ed25519 `SigningKey` all zeroize on drop (the `zeroize` feature on both dalek crates; compile-time contract in `tests/key_hygiene.rs`).
 2. Certificate public-key extraction still uses "SPKI prefix scanning" (rcgen's structure is fixed, reliable but not canonical parsing); x509-parser evaluated and **deferred** (pulls in a nom/asn1-rs dependency tree; compile cost doesn't match the benefit — certificates are self-signed and self-consumed only).
 3. ~~loopback-only candidate addresses~~ ✅ done: STUN-like observed address (relay echoes the peer's TCP address) + local multi-NIC enumeration (UDP connect trick + hostname resolution). Residual: real STUN (UDP-session observed mapped port), NAT-type probing, IPv6.
 4. ~~no concurrent multi-peer punching~~ ✅ done: punch socket and QUIC endpoint are separated and resident, the actor's built-in punch scheduler dispatches by NodeId; a unified peer table (session/path/direct/probe each independent). **New tech debt**: the punch socket ≠ the QUIC socket; on real NATs the QUIC port mapping relies on the simultaneous-open QUIC Initial opening it itself (full-cone/restricted-cone work; symmetric needs the relay); the complete fix is reusing one socket (iroh's approach).
 5. The relay is a single-point TCP forwarder; no multi-relay redundancy, no QUIC-packet-over-relay (iroh DERP semantics).
 6. ~~path switching uses RTT alone~~ ✅ loss rate added (effective score = RTT×(1+10×loss)). Residual: bandwidth/jitter, distinguishing congestion vs physical loss within direct RTT samples.
 7. Late peer PUNCH replies after punching completes have a budget cap (5/peer); extreme asymmetric latency may require re-initiating.
-8. ~~relay path X25519-only~~ ✅ done: feature `gm-pq` wires in gm-pq-stack (SM2+ML-KEM-768 hybrid handshake + SM4-GCM), X25519 kept as automatic fallback. Residual: the GM layer's TOFU anchor (`AllowAllAnchor`) should be a `PinFileAnchor`; no session tickets / 0-RTT; zeroize audit for ephemeral and KEM private keys.
+8. ~~relay path X25519-only~~ ✅ done: feature `gm-pq` wires in gm-pq-stack (SM2+ML-KEM-768 hybrid handshake + SM4-GCM), X25519 kept as automatic fallback. ✅ done: `NodeConfig.gmpq_pin_file` pins the trusted SM2 keys (TOFU → explicit pinning, `Error::PeerAuth` on mismatch). Residual: no session tickets / 0-RTT; key-at-rest encryption for persisted identity files is a compliance follow-up.

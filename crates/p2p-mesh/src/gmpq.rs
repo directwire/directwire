@@ -16,9 +16,9 @@
 //! - session_id is derived from the handshake transcript; a MITM splitting the handshake into
 //!   two halves gets different session_ids, so forwarding a BIND is rejected on the session_id
 //!   mismatch; forging the signature requires the ed25519 private key;
-//! - the gm-pq layer's TrustAnchor is AllowAll (identity pinning is lifted to this layer), TOFU
-//!   semantics. toB production deployments should swap in a PinFileAnchor preloaded with the
-//!   peer's SM2 public key (README TODO).
+//! - the gm-pq layer's trust anchor is pluggable: `NodeConfig.gmpq_pin_file` pins the allowed SM2
+//!   public keys (TOFU upgraded to explicit pinning); without it, the anchor is AllowAll
+//!   (tests/demos only).
 //!
 //! ## Red-line compliance
 //! - client_tag: the relay path has no source-IP semantics, so the peer's NodeId bytes serve as the
@@ -33,10 +33,10 @@ use gm_pq_stack::handshake::{Initiator, Responder};
 use gm_pq_stack::kem::{DefaultHybrid, Kem};
 use gm_pq_stack::rng::SysRng;
 
-pub use gm_pq_stack::handshake::cookie::CookieIssuer;
-pub use gm_pq_stack::trust::AllowAllAnchor;
+pub use gm_pq_stack::handshake::cookie::{CookieIssuer, COOKIE_LEN};
+pub use gm_pq_stack::trust::{AllowAllAnchor, PinFileAnchor, TrustAnchor};
 
-use crate::identity::{verify, NodeId, NodeIdentity};
+use crate::identity::{hex_encode, verify, NodeId, NodeIdentity};
 
 /// GM-PQ channel marker inside a RelayData payload (0x48 is the X25519 handshake; no collision)
 pub const GM_TAG: u8 = 0x47; // 'G'
@@ -93,6 +93,13 @@ pub fn verify_binding(
     sig: &[u8; 64],
 ) -> bool {
     verify(peer, &binding_msg(peer_gm_pk, peer, session_id), sig)
+}
+
+/// SM3 fingerprint of an SM2 static public key, hex-encoded (64 chars) — the value that goes
+/// in a pin-file line (`name <this hex>`, see `PinFileAnchor::parse`). Use this to generate
+/// pin files for `NodeConfig.gmpq_pin_file`.
+pub fn pin_fingerprint(pk: &[u8]) -> String {
+    hex_encode(&sm3(&[pk]))
 }
 
 fn binding_msg(gm_pk: &[u8], id: &NodeId, session_id: &[u8; 32]) -> Vec<u8> {

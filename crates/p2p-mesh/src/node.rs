@@ -18,6 +18,8 @@
 use std::collections::{HashMap, VecDeque};
 use std::io;
 use std::net::SocketAddr;
+#[cfg(feature = "gm-pq")]
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -59,6 +61,12 @@ pub struct NodeConfig {
     /// compiled with feature=gm-pq; auto-fallback to X25519+ed25519 when the peer lacks support
     /// or the handshake times out)
     pub gmpq: bool,
+    /// Trust-anchor pin file for the GM-PQ handshake: lines of `name <sm3-fingerprint-hex>`
+    /// listing the SM2 public keys allowed to authenticate (see `PinFileAnchor::parse`).
+    /// When None, the GM handshake stays TOFU (AllowAllAnchor — tests/demos only). A configured
+    /// file that fails to load aborts `Node::start` (explicit failure, no silent downgrade).
+    #[cfg(feature = "gm-pq")]
+    pub gmpq_pin_file: Option<PathBuf>,
 }
 
 impl NodeConfig {
@@ -71,6 +79,8 @@ impl NodeConfig {
             punch_max_attempts: 20,
             probe_interval: Duration::from_millis(1000),
             gmpq: false,
+            #[cfg(feature = "gm-pq")]
+            gmpq_pin_file: None,
         }
     }
 }
@@ -248,12 +258,23 @@ impl Node {
                 .ok();
         }
 
+        // Trust-anchor pin file: when configured, the GM handshake verifies the peer's SM2
+        // static key against the pinned fingerprints; a load failure aborts startup (explicit,
+        // no silent downgrade to TOFU). None => AllowAllAnchor (tests/demos).
+        #[cfg(feature = "gm-pq")]
+        let gm_anchor = match cfg.gmpq_pin_file.as_ref() {
+            Some(path) => Some(gmpq::PinFileAnchor::from_file(path)?),
+            None => None,
+        };
+
         let mut actor = Actor {
             identity,
             #[cfg(feature = "gm-pq")]
             gm_id,
             #[cfg(feature = "gm-pq")]
             gm_cookie,
+            #[cfg(feature = "gm-pq")]
+            gm_anchor,
             cfg,
             relay,
             punch_sock: Arc::new(punch_sock),
@@ -411,6 +432,9 @@ struct Actor {
     gm_id: Option<gmpq::GmIdentity>,
     #[cfg(feature = "gm-pq")]
     gm_cookie: Option<gmpq::CookieIssuer>,
+    /// Trust anchor for GM-PQ handshake peer-key verification (None = AllowAll TOFU)
+    #[cfg(feature = "gm-pq")]
+    gm_anchor: Option<gmpq::PinFileAnchor>,
     cfg: NodeConfig,
     relay: RelayClient,
     punch_sock: Arc<UdpSocket>,
@@ -1293,9 +1317,13 @@ impl Actor {
                     return;
                 };
                 let mut rng = gmpq::new_rng();
+                let anchor: &dyn gmpq::TrustAnchor = match &self.gm_anchor {
+                    Some(a) => a,
+                    None => &gmpq::AllowAllAnchor,
+                };
                 let res = init
                     .read_msg2(body)
-                    .and_then(|_| init.write_msg3_with_auth(&mut rng, &gmpq::AllowAllAnchor));
+                    .and_then(|_| init.write_msg3_with_auth(&mut rng, anchor));
                 match res {
                     Ok((m3, session)) => {
                         let peer_gm_pk = init.peer_static().unwrap_or_default().to_vec();
@@ -1333,7 +1361,11 @@ impl Actor {
                 else {
                     return;
                 };
-                match resp.read_msg3_with_auth(body, &gmpq::AllowAllAnchor) {
+                let anchor: &dyn gmpq::TrustAnchor = match &self.gm_anchor {
+                    Some(a) => a,
+                    None => &gmpq::AllowAllAnchor,
+                };
+                match resp.read_msg3_with_auth(body, anchor) {
                     Ok((mut session, client_pk)) => {
                         let bind = gmpq::build_bind(
                             &self.identity,

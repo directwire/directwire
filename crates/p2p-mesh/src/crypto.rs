@@ -11,9 +11,9 @@
 //!   k_i2r = SHA256(domain || shared || "i2r" || id_i || id_r), and k_r2i symmetrically.
 //!
 //! The signature binds the ephemeral public key to both NodeIds (including the peer's id, which
-//! prevents cross-session replay / unknown-key-sharing). Known debts: the ephemeral private key is
-//! not zeroized (declared in the README); handshake messages are plaintext (public keys + signatures,
-//! no confidentiality needed).
+//! prevents cross-session replay / unknown-key-sharing). Key hygiene: `StaticSecret`/`SharedSecret`
+//! carry the dalek `zeroize` feature, so every ephemeral secret zeroizes on drop; handshake messages
+//! are plaintext (public keys + signatures, no confidentiality needed).
 
 use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{ChaCha20Poly1305, Nonce};
@@ -118,7 +118,7 @@ pub fn hs_accept(
     resp.extend_from_slice(&[HS_TAG, HS_KIND_RESP]);
     resp.extend_from_slice(&eph_pub);
     resp.extend_from_slice(&sig_r);
-    // Note: eph is already used for DH; dropped here (known debt: not zeroized)
+    // eph (StaticSecret) and shared (SharedSecret) both zeroize on drop via the dalek `zeroize` feature.
     Ok((cipher, resp))
 }
 

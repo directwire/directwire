@@ -650,6 +650,7 @@ dependencies = [
  "sha2",
  "tokio",
  "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]

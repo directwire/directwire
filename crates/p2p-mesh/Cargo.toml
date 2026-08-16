@@ -13,18 +13,20 @@ categories = ["network-programming"]
 # Async runtime & networking
 tokio = { version = "1", features = ["full"] }
 # Node identity: ed25519 public key == NodeId
-ed25519-dalek = { version = "2", features = ["rand_core"] }
+ed25519-dalek = { version = "2", features = ["rand_core", "zeroize"] }
 # NodeId display form (SHA-256 hash) and session key derivation
 sha2 = "0.10"
 # Randomness (key generation)
 rand_core = { version = "0.6", features = ["getrandom"] }
 # Relay-path end-to-end encryption: static DH (ed25519 -> x25519 conversion)
-x25519-dalek = { version = "2", features = ["static_secrets"] }
+x25519-dalek = { version = "2", features = ["static_secrets", "zeroize"] }
 chacha20poly1305 = "0.10"
 # Direct path: QUIC (quinn) + TLS 1.3 self-signed certificates (ring backend, avoids aws-lc-rs's cmake/clang dependency)
 quinn = { version = "0.11", default-features = false, features = ["rustls-ring", "runtime-tokio", "log"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "logging", "tls12"] }
 rcgen = { version = "0.13", default-features = false, features = ["ring"] }
+# Key hygiene: StaticSecret/SharedSecret/SigningKey zeroize on drop
+zeroize = "1"
 # National-crypto + post-quantum hybrid handshake (SM2+ML-KEM-768 / SM4-GCM), optional feature
 gm-pq-stack = { version = "0.1.0", path = "../gm-pq-stack", optional = true }
 # MCP stdio server (zero-framework: newline-delimited JSON-RPC 2.0 subset), optional feature

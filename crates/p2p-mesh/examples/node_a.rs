@@ -1,5 +1,5 @@
 //! node-a: the initiator. First communicates via the relay, switches to direct after punching succeeds, prints path switches and latency comparison.
-//! usage: cargo run --example node_a -- --peer <node-b NodeId hex> [--relay 127.0.0.1:9100] [--seed 1]
+//! usage: cargo run --example node_a -- --peer <node-b NodeId hex> [--relay 127.0.0.1:9100] [--seed 1 | --key-file path]
 
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -19,11 +19,23 @@ async fn main() {
     let relay: SocketAddr = arg_flag("--relay")
         .and_then(|s| s.parse().ok())
         .unwrap_or(SocketAddr::from(([127, 0, 0, 1], 9100)));
-    let seed: u8 = arg_flag("--seed").and_then(|s| s.parse().ok()).unwrap_or(1);
     let peer_hex = arg_flag("--peer").expect("missing --peer <node-b NodeId hex>");
     let peer = NodeId::from_hex(&peer_hex).expect("bad --peer format");
 
-    let identity = NodeIdentity::from_seed([seed; 32]);
+    let identity = match arg_flag("--key-file") {
+        // Stable identity across restarts: load the seed if present, else generate + persist it
+        Some(path) => {
+            let id = NodeIdentity::load_or_generate(&path).expect("load/generate identity key file");
+            println!("[node-a] identity from key file {} = {}", path, id.node_id());
+            id
+        }
+        None => {
+            let seed: u8 = arg_flag("--seed").and_then(|s| s.parse().ok()).unwrap_or(1);
+            let id = NodeIdentity::from_seed([seed; 32]);
+            println!("[node-a] identity from --seed {} = {}", seed, id.node_id());
+            id
+        }
+    };
     let mut cfg = NodeConfig::new(relay);
     cfg.probe_interval = Duration::from_millis(500);
     #[cfg(feature = "gm-pq")]
