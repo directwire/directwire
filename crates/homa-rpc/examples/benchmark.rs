@@ -110,10 +110,8 @@ fn run_mixed(homa: bool) -> Stats {
         Tcp(std::net::SocketAddr, TcpEchoServer),
     }
     let target = if homa {
-        let server = RpcServer::spawn_with_config("127.0.0.1:0", homa_config(), |req| {
-            req.to_vec()
-        })
-        .unwrap();
+        let server =
+            RpcServer::spawn_with_config("127.0.0.1:0", homa_config(), |req| req.to_vec()).unwrap();
         let mut client = RpcClient::new_with_config("127.0.0.1:0", homa_config()).unwrap();
         client.attempt_timeout = Duration::from_secs(5);
         client.max_attempts = 3;

@@ -126,6 +126,24 @@ one hardening pass (GSO/GRO batching, ahashed hot maps, zero-copy send, fixed
 worker pool). Homa's IANA protocol number (146) stays unused — a user-space
 transport needs no kernel patch, which is precisely the deployment wedge.
 
+**net-sim v0.2 evidence (network-condition probe, 2026-08):** a deterministic relay
+proxy injects real delay/loss over real sockets — the same code paths, only the
+network is synthetic, an 80% stand-in for a multi-machine testbed (methodology in
+`docs/benchmarks/net-sim-v0.2.md`, reproducible with `cargo run -p homa-rpc --example net_probe`):
+
+- **100 ms RTT, 1 MiB long RPC: 322 ms vs 1 717 ms for the TCP baseline = 5.34×.**
+  TCP pays per-RTT congestion-window growth plus connection setup; Homa's
+  receiver-driven GRANT scheduling advances the byte stream every RTT, so long
+  messages don't wait on the sender's window to crawl up.
+- 100 ms RTT + 1% packet loss: long RPC still **4.66×**. The v0.1 short-RPC dead
+  zone (a lost single-packet message was recoverable only by a 5 s RPC-layer
+  timeout) is closed by a sender-side "confirm-before-retransmit" window:
+  short-RPC P99 drops from ~5.1 s to **453 ms**, with **zero extra retransmission
+  on loss-free links** (deterministic unit test + 0 pokes on the ideal profile).
+- 10 ms RTT + 5% packet loss: **0 failures** across 273 short RPCs (v0.1: 2
+  failures, P99 ≈ 10 s); long RPC pays the honest RESEND-repair cost (+23% vs
+  clean-link TCP — real loss, no fake clean comparison).
+
 ## Layer 5 — Edge: `xdp-edge`
 
 The relay infrastructure is the always-on part of the network, and the always-on

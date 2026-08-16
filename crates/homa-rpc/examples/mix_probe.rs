@@ -27,8 +27,8 @@ fn homa_config() -> TransportConfig {
 }
 
 fn main() {
-    let server = RpcServer::spawn_with_config("127.0.0.1:0", homa_config(), |req| req.to_vec())
-        .unwrap();
+    let server =
+        RpcServer::spawn_with_config("127.0.0.1:0", homa_config(), |req| req.to_vec()).unwrap();
     let mut client = RpcClient::new_with_config("127.0.0.1:0", homa_config()).unwrap();
     client.attempt_timeout = Duration::from_secs(5);
     client.max_attempts = 3;
@@ -98,9 +98,24 @@ fn main() {
     let us = |d: Duration| format!("{:.1}", d.as_secs_f64() * 1e6);
 
     let s = s.lock().unwrap();
-    println!("长RPC send阶段: n={} P50={}µs P90={}µs", s.long_send.len(), us(pct(&s.long_send, 0.5)), us(pct(&s.long_send, 0.9)));
-    println!("长RPC 总往返:  n={} P50={}µs P90={}µs", s.long_total.len(), us(pct(&s.long_total, 0.5)), us(pct(&s.long_total, 0.9)));
-    println!("短RPC 总往返:  n={} P50={}µs P90={}µs", s.short_total.len(), us(pct(&s.short_total, 0.5)), us(pct(&s.short_total, 0.9)));
+    println!(
+        "长RPC send阶段: n={} P50={}µs P90={}µs",
+        s.long_send.len(),
+        us(pct(&s.long_send, 0.5)),
+        us(pct(&s.long_send, 0.9))
+    );
+    println!(
+        "长RPC 总往返:  n={} P50={}µs P90={}µs",
+        s.long_total.len(),
+        us(pct(&s.long_total, 0.5)),
+        us(pct(&s.long_total, 0.9))
+    );
+    println!(
+        "短RPC 总往返:  n={} P50={}µs P90={}µs",
+        s.short_total.len(),
+        us(pct(&s.short_total, 0.5)),
+        us(pct(&s.short_total, 0.9))
+    );
     let send_p50 = pct(&s.long_send, 0.5);
     let total_p50 = pct(&s.long_total, 0.5);
     if !total_p50.is_zero() {

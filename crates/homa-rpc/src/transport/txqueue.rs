@@ -113,12 +113,7 @@ impl TxQueues {
     /// 观测用：积压总数
     pub fn backlog(&self) -> usize {
         let inner = self.inner.lock().unwrap();
-        inner
-            .queues
-            .iter()
-            .map(|q| q.len())
-            .sum::<usize>()
-            + inner.control.len()
+        inner.queues.iter().map(|q| q.len()).sum::<usize>() + inner.control.len()
     }
 }
 
@@ -132,7 +127,11 @@ mod tests {
     }
 
     /// 测试辅助：非阻塞弹出一批（等 100ms 超时返回，若空则驱动一次 wake_all）
-    fn pop_with_timeout(tx: &TxQueues, budget: usize, timeout: std::time::Duration) -> Vec<(SocketAddr, Vec<u8>)> {
+    fn pop_with_timeout(
+        tx: &TxQueues,
+        budget: usize,
+        timeout: std::time::Duration,
+    ) -> Vec<(SocketAddr, Vec<u8>)> {
         let deadline = std::time::Instant::now() + timeout;
         loop {
             if let Some(batch) = try_pop(tx, budget) {

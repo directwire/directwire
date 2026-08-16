@@ -20,8 +20,8 @@ use std::net::SocketAddr;
 
 use socket2::{MsgHdr, SockAddr, SockRef};
 
-use super::packet::{PacketType, HEADER_LEN};
 use super::Inner;
+use super::packet::{HEADER_LEN, PacketType};
 
 /// GSO 段缓冲上限：Windows UDP 数据报上限 ~64KB。
 /// 满包 1222B × 53 = 64766 ≤ 65536（实际按 mss 动态算）
@@ -83,7 +83,11 @@ impl GsoAggregator {
         if self.count == 0 {
             return None;
         }
-        let out = (self.dest.unwrap(), std::mem::take(&mut self.buf), self.count);
+        let out = (
+            self.dest.unwrap(),
+            std::mem::take(&mut self.buf),
+            self.count,
+        );
         self.dest = None;
         self.count = 0;
         Some(out)
@@ -112,8 +116,8 @@ impl GsoAggregator {
         }
         self.dest = Some(dest);
         self.msg_id = u64::from_le_bytes(bytes[2..10].try_into().unwrap());
-        self.next_offset = u32::from_le_bytes(bytes[14..18].try_into().unwrap()) as u64
-            + self.stride as u64;
+        self.next_offset =
+            u32::from_le_bytes(bytes[14..18].try_into().unwrap()) as u64 + self.stride as u64;
         self.buf.clear();
         self.buf.extend_from_slice(bytes);
         self.count = 1;
@@ -160,8 +164,15 @@ mod tests {
     const PS: usize = 1200;
 
     fn full_pkt(msg_id: u64, offset: usize) -> Vec<u8> {
-        Packet::new(PacketType::Data, 0, msg_id, 1 << 20, offset as u32, PS as u32)
-            .encode(&vec![0x5a; PS])
+        Packet::new(
+            PacketType::Data,
+            0,
+            msg_id,
+            1 << 20,
+            offset as u32,
+            PS as u32,
+        )
+        .encode(&vec![0x5a; PS])
     }
 
     #[test]

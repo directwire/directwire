@@ -59,6 +59,11 @@ pub struct TransportConfig {
     pub grant_timeout: Duration,
     /// 发送端停滞探测间隔
     pub poke_timeout: Duration,
+    /// 「确认前重发」窗口的保守 RTT 估计（短消息无 RTT 样本时使用）。
+    /// 带 retransmit 标志的消息（RPC 请求）整条发完后，若在此窗口内未收到确认
+    /// （响应 = 隐式 ACK，上层 confirm 摘除），重发首分片。保守取值（默认 500ms）
+    /// 保证无丢包时响应先到、确认先于窗口触发——零额外重发。
+    pub retransmit_timeout: Duration,
     /// 消息发完后保留状态响应迟到 RESEND 的驻留时间
     pub linger: Duration,
     /// send_to 的整体超时（超过则放弃，由上层 RPC 重试）
@@ -82,6 +87,7 @@ impl Default for TransportConfig {
             resend_timeout: Duration::from_millis(20),
             grant_timeout: Duration::from_millis(40),
             poke_timeout: Duration::from_millis(50),
+            retransmit_timeout: Duration::from_millis(500),
             linger: Duration::from_secs(5),
             send_timeout: Duration::from_secs(30),
             max_incoming: 1024,
@@ -245,15 +251,29 @@ impl Transport {
         let pkts = self.inner.recv_packets.load(Ordering::Relaxed);
         let lock_ns = self.inner.io_lock_ns.load(Ordering::Relaxed);
         let wait_ns = self.inner.io_lock_wait_ns.load(Ordering::Relaxed);
+        let retx = self.inner.state.lock().unwrap().sender.retransmit_count();
         format!(
-            "send_syscalls={} gso_segments={} recv_packets={} io_lock_batches={} io_lock_avg_batch={:.1}µs(持锁) io_lock_wait_batch={:.1}µs(等锁) io_lock_per_pkt={:.2}µs",
+            "send_syscalls={} gso_segments={} recv_packets={} retransmit_pokes={} io_lock_batches={} io_lock_avg_batch={:.1}µs(持锁) io_lock_wait_batch={:.1}µs(等锁) io_lock_per_pkt={:.2}µs",
             self.inner.send_syscalls.load(Ordering::Relaxed),
             self.inner.gso_segments.load(Ordering::Relaxed),
             pkts,
+            retx,
             batches,
-            if batches > 0 { lock_ns as f64 / batches as f64 / 1e3 } else { 0.0 },
-            if batches > 0 { wait_ns as f64 / batches as f64 / 1e3 } else { 0.0 },
-            if pkts > 0 { (lock_ns + wait_ns) as f64 / pkts as f64 / 1e3 } else { 0.0 },
+            if batches > 0 {
+                lock_ns as f64 / batches as f64 / 1e3
+            } else {
+                0.0
+            },
+            if batches > 0 {
+                wait_ns as f64 / batches as f64 / 1e3
+            } else {
+                0.0
+            },
+            if pkts > 0 {
+                (lock_ns + wait_ns) as f64 / pkts as f64 / 1e3
+            } else {
+                0.0
+            },
         )
     }
 
@@ -276,15 +296,40 @@ impl Transport {
 
     /// 与 send_to 等语义，但**移动**数据而非拷贝：调用方已拥有 Vec 时免去一次全量复制
     ///（长消息 1MiB 负载的 memcpy 是 RPC 路径上可省的大头）。
+    /// 普通发送：**不**进入「确认前重发」窗口（服务端响应等由对端重发请求触发
+    /// 幂等回放的路径走这里——自身重发会造成双倍响应流量）。
     pub fn send_vec(&self, dest: SocketAddr, data: Vec<u8>) -> io::Result<u64> {
+        self.send_impl(dest, data, false)
+    }
+
+    /// 带「确认前重发」窗口的发送（RPC 请求路径）：消息发完后若未收到确认
+    /// （上层收到响应后调 [`Transport::confirm`]），发送端在保守 RTT 估计
+    /// （`TransportConfig::retransmit_timeout`，默认 500ms）后重发首分片——
+    /// 修复短消息单包丢失时接收端无法发 RESEND（它从没见过这条消息）的死区。
+    /// 无丢包时响应先到、confirm 摘除消息，窗口从不触发（零额外重发）。
+    pub fn send_pokeable(&self, dest: SocketAddr, data: Vec<u8>) -> io::Result<u64> {
+        self.send_impl(dest, data, true)
+    }
+
+    fn send_impl(&self, dest: SocketAddr, data: Vec<u8>, retransmit: bool) -> io::Result<u64> {
         let data_len = data.len();
         let msg_id = self.inner.msg_counter.fetch_add(1, Ordering::Relaxed);
         let now = Instant::now();
         let deadline = now + self.inner.send_timeout;
 
+        // 重发窗口只对「整体落在未调度窗口内」的短消息生效——那是接收端无法
+        // RESEND（从没见过）的唯一死区。长消息在发送中途被接收端从任意分片获知，
+        // 由停滞探针 + RESEND 恢复；对长消息开窗口只会因「入队完成→响应到达」的
+        // 时间差在无丢包时触发空重发（双倍流量）。
+        let retransmit = retransmit && data_len <= self.inner.unscheduled_bytes;
+
         let actions = {
             let mut st = self.inner.state.lock().unwrap();
-            st.sender.start(dest, msg_id, data, now)
+            if retransmit {
+                st.sender.start_retransmit(dest, msg_id, data, now)
+            } else {
+                st.sender.start(dest, msg_id, data, now)
+            }
         };
 
         // 短消息（整体落在未调度窗口内）：调用线程直发全部，免去 send_loop 线程切换的
@@ -324,6 +369,25 @@ impl Transport {
             let (guard, _) = self.inner.cv.wait_timeout(st, remain).unwrap();
             st = guard;
         }
+    }
+
+    /// 确认一条消息已被对端完整接收（RPC 收到响应 = 请求的隐式 ACK）：
+    /// 停止其「确认前重发」窗口；已发完则立即回收（对端收全即不会再发 RESEND，
+    /// 无需留 linger）。消息不存在时无操作。
+    pub fn confirm(&self, dest: SocketAddr, msg_id: u64) {
+        let mut st = self.inner.state.lock().unwrap();
+        st.sender.confirm(dest, msg_id);
+    }
+
+    /// 放弃一条消息（超时重试等场景）：从发送状态移除，停止一切重发/重传。
+    pub fn finish(&self, dest: SocketAddr, msg_id: u64) {
+        let mut st = self.inner.state.lock().unwrap();
+        st.sender.finish(dest, msg_id);
+    }
+
+    /// 调试：「确认前重发」窗口触发次数（net_probe 用它验证「无丢包零额外重发」）
+    pub fn retransmit_pokes(&self) -> u64 {
+        self.inner.state.lock().unwrap().sender.retransmit_count()
     }
 
     /// 接收一条完整消息。timeout 内无消息返回 WouldBlock。
@@ -464,10 +528,9 @@ fn process_batch(inner: &Inner, src: SocketAddr, data: &[u8], stride: usize) {
             continue;
         };
         match pkt.typ {
-            PacketType::Data => {
-                st.receiver
-                    .handle_data(src, &pkt, payload, now, &mut actions)
-            }
+            PacketType::Data => st
+                .receiver
+                .handle_data(src, &pkt, payload, now, &mut actions),
             PacketType::Grant => {
                 st.sender.handle_grant(src, &pkt, now, &mut actions);
                 inner.trace("grant", pkt.msg_id);
@@ -481,12 +544,10 @@ fn process_batch(inner: &Inner, src: SocketAddr, data: &[u8], stride: usize) {
         inner.recv_packets.fetch_add(1, Ordering::Relaxed);
     }
     drain(inner, &mut st, actions);
-    inner
-        .io_lock_wait_ns
-        .fetch_add(
-            lock_held_t0.duration_since(lock_t0).as_nanos() as u64,
-            Ordering::Relaxed,
-        );
+    inner.io_lock_wait_ns.fetch_add(
+        lock_held_t0.duration_since(lock_t0).as_nanos() as u64,
+        Ordering::Relaxed,
+    );
     inner
         .io_lock_ns
         .fetch_add(lock_held_t0.elapsed().as_nanos() as u64, Ordering::Relaxed);

@@ -59,6 +59,13 @@ impl InMsg {
 /// 已交付消息键的缓存上限（用于去重迟到的重复 DATA）
 const COMPLETED_CACHE: usize = 4096;
 
+/// 单条消息最大长度（防恶意/损坏头部的**分配炸弹**）。
+/// 接收缓冲按 msg_len 分配（`vec![0u8; total_len]`），msg_len 来自不可信包头
+/// （u32，上限 4 GiB）——无上限的话一个伪造包头就是 4 GiB 分配。16 MiB 远超
+/// 1 MiB 基准负载与任何真实场景，超过即整包丢弃（发送端会超时/重试自愈）。
+/// fuzz 目标直接依赖此守卫（见 fuzz-harness 的 homa_transport 目标）。
+pub const MAX_MSG_LEN: usize = 16 << 20;
+
 /// 接收端核心状态机
 pub struct ReceiverCore {
     cfg: TransportConfig,
@@ -104,6 +111,9 @@ impl ReceiverCore {
             return; // 已交付消息的迟到重复分片，直接丢弃
         }
         let total_len = pkt.msg_len as usize;
+        if total_len > MAX_MSG_LEN {
+            return; // 伪造/损坏的超大 msg_len：拒绝分配，静默丢弃
+        }
         let pkt_size = self.cfg.packet_size;
 
         // 并发消息数超限 → 回 BUSY，让发送端稍后试探
@@ -352,5 +362,31 @@ impl ReceiverCore {
             ));
         }
         s
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+
+    /// 分配炸弹守卫：伪造 msg_len 超过 16 MiB 的 DATA 包头，不得分配缓冲、不得进重组。
+    /// fuzz 依赖此守卫保证 `vec![0u8; msg_len]` 不可能被不可信包头触发。
+    #[test]
+    fn 超大msg_len_拒绝分配() {
+        let mut s = ReceiverCore::new(TransportConfig::default());
+        let now = Instant::now();
+        let mut actions = Vec::new();
+        let src: SocketAddr = "127.0.0.1:9999".parse().unwrap();
+        let pkt = Packet::new(PacketType::Data, 0, 1, (MAX_MSG_LEN as u32) + 1, 0, 3);
+        let bytes = pkt.encode(b"abc");
+        let (pkt2, payload) = Packet::decode(&bytes).unwrap();
+        s.handle_data(src, &pkt2, payload, now, &mut actions);
+        assert_eq!(
+            s.in_flight(),
+            0,
+            "超大 msg_len 必须被守卫拦截，不得进入重组"
+        );
+        assert!(actions.is_empty(), "不得产生任何动作");
     }
 }

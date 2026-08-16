@@ -61,29 +61,27 @@ impl ThreadPool {
         let shutdown = Arc::new(AtomicBool::new(false));
         let mut workers = Vec::with_capacity(size);
         for i in 0..size {
-            let (jobs, cv, shutdown) = (
-                Arc::clone(&jobs),
-                Arc::clone(&cv),
-                Arc::clone(&shutdown),
-            );
+            let (jobs, cv, shutdown) = (Arc::clone(&jobs), Arc::clone(&cv), Arc::clone(&shutdown));
             workers.push(
                 std::thread::Builder::new()
                     .name(format!("homa-rpc-pool-{i}"))
-                    .spawn(move || loop {
-                        let job = {
-                            let mut q = jobs.lock().unwrap();
-                            loop {
-                                if shutdown.load(Ordering::Relaxed) {
-                                    return;
+                    .spawn(move || {
+                        loop {
+                            let job = {
+                                let mut q = jobs.lock().unwrap();
+                                loop {
+                                    if shutdown.load(Ordering::Relaxed) {
+                                        return;
+                                    }
+                                    if let Some(j) = q.pop_front() {
+                                        break j;
+                                    }
+                                    q = cv.wait(q).unwrap();
                                 }
-                                if let Some(j) = q.pop_front() {
-                                    break j;
-                                }
-                                q = cv.wait(q).unwrap();
-                            }
-                        };
-                        // 崩溃隔离：handler panic 只丢本次任务，不杀池内线程
-                        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(job));
+                            };
+                            // 崩溃隔离：handler panic 只丢本次任务，不杀池内线程
+                            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(job));
+                        }
                     })
                     .expect("spawn pool worker"),
             );
@@ -213,6 +211,11 @@ impl RpcServer {
         self.transport.debug_stats()
     }
 
+    /// 调试：「确认前重发」窗口触发次数
+    pub fn retransmit_pokes(&self) -> u64 {
+        self.transport.retransmit_pokes()
+    }
+
     /// 调试：导出追踪事件
     pub fn take_trace(&self) -> Vec<(std::time::Instant, String, u64)> {
         self.transport.take_trace()
@@ -302,13 +305,21 @@ impl RpcClient {
         for _ in 0..max_attempts.max(1) {
             let (tx, rx) = channel::<Vec<u8>>();
             self.waiters.lock().unwrap().insert(rpc_id, tx);
-            // 移动而非拷贝（长负载下省一次全量 memcpy）；frame 被发送消费后重试需重建
-            self.transport.send_vec(server, frame)?;
+            // 移动而非拷贝（长负载下省一次全量 memcpy）；frame 被发送消费后重试需重建。
+            // 请求走「确认前重发」窗口（send_pokeable）：响应到达 = 请求的隐式 ACK，
+            // 调用 confirm 停掉重发窗口；请求首包丢失时（接收端对未知消息无法 RESEND），
+            // 发送端按保守 RTT 估计重发首分片，短消息丢包恢复从 ~5s 降到 ~RTT。
+            let msg_id = self.transport.send_pokeable(server, frame)?;
             match rx.recv_timeout(attempt_timeout) {
-                Ok(body) => return Ok(body),
+                Ok(body) => {
+                    self.transport.confirm(server, msg_id);
+                    return Ok(body);
+                }
                 Err(_) => {
-                    // 超时：摘掉等待者，用同一 rpc_id 整体重发
+                    // 超时：放弃该传输消息（停止其重传窗口，防重传风暴），
+                    // 摘掉等待者，用同一 rpc_id 整体重发
                     self.waiters.lock().unwrap().remove(&rpc_id);
+                    self.transport.finish(server, msg_id);
                     frame = encode_frame(rpc_id, payload);
                 }
             }
@@ -338,6 +349,11 @@ impl RpcClient {
         self.transport.debug_stats()
     }
 
+    /// 调试：「确认前重发」窗口触发次数
+    pub fn retransmit_pokes(&self) -> u64 {
+        self.transport.retransmit_pokes()
+    }
+
     /// 调试：导出追踪事件
     pub fn take_trace(&self) -> Vec<(std::time::Instant, String, u64)> {
         self.transport.take_trace()
@@ -347,7 +363,11 @@ impl RpcClient {
     /// 返回 (send_to 耗时, 总耗时)。
     /// 安全性：响应必然在全部请求字节发出后才可能到；send_to 返回 = 全部入队，
     /// 最后一包可能仍在 send_loop 队列中，故响应不会先于 waiter 注册到达。
-    pub fn call_timed(&self, server: SocketAddr, payload: &[u8]) -> io::Result<(Duration, Duration)> {
+    pub fn call_timed(
+        &self,
+        server: SocketAddr,
+        payload: &[u8],
+    ) -> io::Result<(Duration, Duration)> {
         let rpc_id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let frame = encode_frame(rpc_id, payload);
         let t0 = Instant::now();

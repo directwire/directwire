@@ -21,8 +21,8 @@ fn main() {
         grant_increment: 1 << 20,
         ..Default::default()
     };
-    let server = RpcServer::spawn_with_config("127.0.0.1:0", cfg.clone(), |req| req.to_vec())
-        .unwrap();
+    let server =
+        RpcServer::spawn_with_config("127.0.0.1:0", cfg.clone(), |req| req.to_vec()).unwrap();
     let mut client = RpcClient::new_with_config("127.0.0.1:0", cfg).unwrap();
     client.attempt_timeout = Duration::from_secs(5);
     client.max_attempts = 3;
@@ -41,16 +41,38 @@ fn main() {
 
     for _ in 0..OPS {
         let t0 = Instant::now();
-        client.call_with_timeout(server.addr(), &payload, Duration::from_secs(5), 3).unwrap();
+        client
+            .call_with_timeout(server.addr(), &payload, Duration::from_secs(5), 3)
+            .unwrap();
         totals.push(t0.elapsed());
         // 收集本调用期间产生的 trace（丢 trace 门控，精确配对）
         let ct = client.take_trace();
         let st = server.take_trace();
-        let c_send: HashMap<u64, Instant> = ct.iter().filter(|(_, e, _)| e == "send_queued").map(|(t, _, id)| (*id, *t)).collect();
-        let c_grant: HashMap<u64, Instant> = ct.iter().filter(|(_, e, _)| e == "grant").map(|(t, _, id)| (*id, *t)).collect();
-        let c_deliv: HashMap<u64, Instant> = ct.iter().filter(|(_, e, _)| e == "deliver").map(|(t, _, id)| (*id, *t)).collect();
-        let s_deliv: HashMap<u64, Instant> = st.iter().filter(|(_, e, _)| e == "deliver").map(|(t, _, id)| (*id, *t)).collect();
-        let s_send: HashMap<u64, Instant> = st.iter().filter(|(_, e, _)| e == "send_queued").map(|(t, _, id)| (*id, *t)).collect();
+        let c_send: HashMap<u64, Instant> = ct
+            .iter()
+            .filter(|(_, e, _)| e == "send_queued")
+            .map(|(t, _, id)| (*id, *t))
+            .collect();
+        let c_grant: HashMap<u64, Instant> = ct
+            .iter()
+            .filter(|(_, e, _)| e == "grant")
+            .map(|(t, _, id)| (*id, *t))
+            .collect();
+        let c_deliv: HashMap<u64, Instant> = ct
+            .iter()
+            .filter(|(_, e, _)| e == "deliver")
+            .map(|(t, _, id)| (*id, *t))
+            .collect();
+        let s_deliv: HashMap<u64, Instant> = st
+            .iter()
+            .filter(|(_, e, _)| e == "deliver")
+            .map(|(t, _, id)| (*id, *t))
+            .collect();
+        let s_send: HashMap<u64, Instant> = st
+            .iter()
+            .filter(|(_, e, _)| e == "send_queued")
+            .map(|(t, _, id)| (*id, *t))
+            .collect();
         // 请求配对：client 本调用只发了 1 条，其 send_queued 是最晚的 client send_queued
         let &c_req_t = c_send.values().max().unwrap();
         let req_id = *c_send.iter().find(|(_, t)| **t == c_req_t).unwrap().0;
@@ -61,7 +83,12 @@ fn main() {
         let s_del_t = *s_deliv.get(&req_id).unwrap();
         req_xmit.push(s_del_t - c_req_t);
         // 服务端 gap：该请求 deliver 之后最近的服务端 send_queued
-        let s_send_t = *s_send.iter().filter(|(_, t)| **t > s_del_t).map(|(_, t)| t).min().unwrap();
+        let s_send_t = *s_send
+            .iter()
+            .filter(|(_, t)| **t > s_del_t)
+            .map(|(_, t)| t)
+            .min()
+            .unwrap();
         server_gap.push(s_send_t - s_del_t);
         // 响应配对：服务端这条 send_queued 的 msg_id → 客户端 deliver
         let resp_id = *s_send.iter().find(|(_, t)| **t == s_send_t).unwrap().0;
@@ -75,16 +102,38 @@ fn main() {
 
     let pct = |v: &mut Vec<Duration>, p: f64| -> Duration {
         v.sort();
-        if v.is_empty() { return Duration::ZERO; }
+        if v.is_empty() {
+            return Duration::ZERO;
+        }
         let i = ((v.len() as f64 - 1.0) * p).ceil() as usize;
         v[i.min(v.len() - 1)]
     };
     let us = |d: Duration| format!("{:.1}", d.as_secs_f64() * 1e6);
     println!("单线程 1MiB RPC × {} 次：", OPS);
     println!("  总往返: P50={}µs", us(pct(&mut totals.clone(), 0.5)));
-    println!("  授权往返 grant_rtt:      P50={}µs P90={}µs", us(pct(&mut grant_rtt, 0.5)), us(pct(&mut grant_rtt, 0.9)));
-    println!("  请求传输 req_xmit:      P50={}µs P90={}µs", us(pct(&mut req_xmit, 0.5)), us(pct(&mut req_xmit, 0.9)));
-    println!("  服务端处理 server_gap:   P50={}µs P90={}µs", us(pct(&mut server_gap, 0.5)), us(pct(&mut server_gap, 0.9)));
-    println!("  响应传输 resp_xmit:      P50={}µs P90={}µs", us(pct(&mut resp_xmit, 0.5)), us(pct(&mut resp_xmit, 0.9)));
-    println!("  客户端衔接 client_gap:   P50={}µs P90={}µs", us(pct(&mut client_gap, 0.5)), us(pct(&mut client_gap, 0.9)));
+    println!(
+        "  授权往返 grant_rtt:      P50={}µs P90={}µs",
+        us(pct(&mut grant_rtt, 0.5)),
+        us(pct(&mut grant_rtt, 0.9))
+    );
+    println!(
+        "  请求传输 req_xmit:      P50={}µs P90={}µs",
+        us(pct(&mut req_xmit, 0.5)),
+        us(pct(&mut req_xmit, 0.9))
+    );
+    println!(
+        "  服务端处理 server_gap:   P50={}µs P90={}µs",
+        us(pct(&mut server_gap, 0.5)),
+        us(pct(&mut server_gap, 0.9))
+    );
+    println!(
+        "  响应传输 resp_xmit:      P50={}µs P90={}µs",
+        us(pct(&mut resp_xmit, 0.5)),
+        us(pct(&mut resp_xmit, 0.9))
+    );
+    println!(
+        "  客户端衔接 client_gap:   P50={}µs P90={}µs",
+        us(pct(&mut client_gap, 0.5)),
+        us(pct(&mut client_gap, 0.9))
+    );
 }
