@@ -171,11 +171,12 @@ def attach():
 
 def fill_maps():
     log("预填 config / backends / conntrack")
-    # libbpf btf__resolve_size 把 map 的 value_size 上取整到 8 字节对齐：
-    #   edge_config  44B -> 48B
-    #   backend_info 12B -> 16B
-    # bpftool map update 要求 value 字节数精确 == value_size，多出的对齐填充
-    # 写零即可（CI 实测 error: value expected 48 bytes got 44）。
+    # map 的 key/value 字节数 == sizeof(struct)（C 规则：结构体大小取整到
+    # 它自己的对齐，BTF 已含尾部填充）：
+    #   edge_config  对齐 8 -> 44 补到 48B
+    #   backend_info 对齐 4 -> 12B（不动）
+    # bpftool map update 要求字节数精确匹配，多/少都会报错。config 尾部
+    # 4B 填充写零（CI 实测: value expected 48 bytes got 44）。
     PAD4 = b"\x00\x00\x00\x00"
     cfg = struct.pack(
         "<QQQII4s6s2s",
@@ -197,7 +198,7 @@ def fill_maps():
         "<I6sH",
         int.from_bytes(socket.inet_aton(BACKEND_IP), "little"),
         bytes.fromhex("aabbccddeeff"), 0,
-    ) + PAD4   # backend_info 12B -> value_size 16B（8 字节对齐）
+    )  # backend_info sizeof=12（对齐 4）→ value_size 12B，勿加填充
     ck = SRC + DST + struct.pack("!HH", SPORT, DPORT) + b"\x06" + b"\x00\x00\x00"
     # conn_value { u32 backend_idx; u64 last_seen_ns; } 在 bpf 目标上有 4B
     # 对齐填充，实际大小 16B（非 12B）；bpftool map update 的 value 必须精确
