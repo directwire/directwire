@@ -68,7 +68,6 @@ fn main() {
 
     println!("── 底层原语（libsmx 直接计时） ──");
     let mut rng = SysRng::new();
-    let mut rng = SysRng::new();
     let (sk, pk) = DefaultHybrid::keypair(&mut rng).unwrap();
     let (ct, ss) = DefaultHybrid::encapsulate(&mut rng, &pk).unwrap();
     assert_eq!(ss.len(), 32);

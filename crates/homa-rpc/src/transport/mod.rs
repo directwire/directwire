@@ -122,7 +122,11 @@ struct Inner {
     send_timeout: Duration,
     /// 未调度窗口：整体落在窗口内的消息走调用线程直发（短消息免 send_loop 线程切换）
     unscheduled_bytes: usize,
-    /// 分片负载容量（GSO 聚合的满包/步进基准）
+    /// 分片负载容量（GSO 聚合的满包/步进基准）。仅 Windows 的 GSO 路径读取
+    /// （`send_segment` / send_loop 的聚合器都是 `#[cfg(windows)]`）；Linux 走
+    /// 逐包回退、从不读它，故随 send_segment 一并 gate 到 Windows，否则
+    /// `-D warnings`（CI RUSTFLAGS）在 Linux 上报 dead_code 硬错误。
+    #[cfg(windows)]
     packet_size: usize,
     /// 调试计数（HOMA_TRACE=1 时 probe 打印）：send_loop syscall 数 / GSO 段数 / io_loop 包数
     send_syscalls: AtomicU64,
@@ -185,6 +189,7 @@ impl Transport {
         };
         let send_timeout = cfg.send_timeout;
         let unscheduled_bytes = cfg.unscheduled_bytes;
+        #[cfg(windows)]
         let packet_size = cfg.packet_size;
         let inner = Arc::new(Inner {
             socket,
@@ -201,6 +206,7 @@ impl Transport {
             shutdown: AtomicBool::new(false),
             send_timeout,
             unscheduled_bytes,
+            #[cfg(windows)]
             packet_size,
             send_syscalls: AtomicU64::new(0),
             gso_segments: AtomicU64::new(0),
