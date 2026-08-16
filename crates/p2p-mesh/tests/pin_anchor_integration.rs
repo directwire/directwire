@@ -33,7 +33,9 @@ fn run_handshake(
     let mut retry = ck.clone();
     retry.extend_from_slice(&e_pk);
     let (echo, e_pk2) = retry.split_at(COOKIE_LEN);
-    cookie.verify(a.node_id().as_bytes(), e_pk2, echo).expect("cookie verify");
+    cookie
+        .verify(a.node_id().as_bytes(), e_pk2, echo)
+        .expect("cookie verify");
     let mut resp = GmResponder::new(gm_b.sk.clone(), gm_b.pk.clone());
     resp.read_msg1(e_pk2).expect("read msg1");
     let m2 = resp.write_msg2(&mut rng).expect("write msg2");
@@ -147,5 +149,8 @@ fn pin_fingerprint_roundtrips_through_parse() {
 
     let anchor = PinFileAnchor::parse(&format!("gateway-01 {fp}\n")).unwrap();
     assert!(anchor.lookup(&gm_a.pk).is_some(), "pinned key must resolve");
-    assert!(anchor.lookup(&gm_b.pk).is_none(), "unpinned key must not resolve");
+    assert!(
+        anchor.lookup(&gm_b.pk).is_none(),
+        "unpinned key must not resolve"
+    );
 }

@@ -20,7 +20,8 @@ async fn main() {
     let identity = match arg_flag("--key-file") {
         // Stable identity across restarts: load the seed if present, else generate + persist it
         Some(path) => {
-            let id = NodeIdentity::load_or_generate(&path).expect("load/generate identity key file");
+            let id =
+                NodeIdentity::load_or_generate(&path).expect("load/generate identity key file");
             eprintln!(
                 "[node-b] identity from key file {} = {} (hex: {})",
                 path,

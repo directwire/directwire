@@ -204,7 +204,11 @@ mod tests {
         let id = NodeIdentity::from_seed([7u8; 32]);
         id.save(&path).unwrap();
         let loaded = NodeIdentity::load(&path).unwrap();
-        assert_eq!(loaded.node_id(), id.node_id(), "load must recover the same identity");
+        assert_eq!(
+            loaded.node_id(),
+            id.node_id(),
+            "load must recover the same identity"
+        );
         assert!(id.sign(b"persisted").len() == 64);
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -214,10 +218,16 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("dw-identity-bad-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let missing = dir.join("missing.seed");
-        assert!(NodeIdentity::load(&missing).is_err(), "missing file must error");
+        assert!(
+            NodeIdentity::load(&missing).is_err(),
+            "missing file must error"
+        );
         let bad = dir.join("bad.seed");
         std::fs::write(&bad, [1u8; 31]).unwrap();
-        assert!(NodeIdentity::load(&bad).is_err(), "non-32-byte file must error");
+        assert!(
+            NodeIdentity::load(&bad).is_err(),
+            "non-32-byte file must error"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
