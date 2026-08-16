@@ -32,12 +32,6 @@ Abstract
    draft describing the protocol as implemented by the reference
    implementation at version 0.2.
 
-About This Document
-
-   The protocol presented here follows the iroh peer-to-peer model for
-   candidate discovery and relay brokering [IROH].  This document was
-   produced using the xml2rfc version 3 vocabulary [RFC7991].
-
 Status of This Memo
 
    This Internet-Draft is submitted in full conformance with the
@@ -48,6 +42,12 @@ Status of This Memo
    working documents as Internet-Drafts.  The list of current Internet-
    Drafts is at https://datatracker.ietf.org/drafts/current/.
 
+   Internet-Drafts are draft documents valid for a maximum of six months
+   and may be updated, replaced, or obsoleted by other documents at any
+   time.  It is inappropriate to use Internet-Drafts as reference
+   material or to cite them other than as "work in progress."
+
+   This Internet-Draft will expire on 17 February 2027.
 
 
 
@@ -57,13 +57,6 @@ Directwire              Expires 17 February 2027                [Page 1]
 
 Internet-Draft            Directwire Transport               August 2026
 
-
-   Internet-Drafts are draft documents valid for a maximum of six months
-   and may be updated, replaced, or obsoleted by other documents at any
-   time.  It is inappropriate to use Internet-Drafts as reference
-   material or to cite them other than as "work in progress."
-
-   This Internet-Draft will expire on 17 February 2027.
 
 Copyright Notice
 
@@ -106,6 +99,13 @@ Table of Contents
            Problem)  . . . . . . . . . . . . . . . . . . . . . . . .  11
      A.2.  Why a Candidate at All  . . . . . . . . . . . . . . . . .  11
      A.3.  Candidate Design (v0.3) . . . . . . . . . . . . . . . . .  11
+     A.4.  Trade-Offs (Why v0.2 Shipped Without It)  . . . . . . . .  12
+   Author's Address  . . . . . . . . . . . . . . . . . . . . . . . .  12
+
+
+
+
+
 
 
 
@@ -113,9 +113,6 @@ Directwire              Expires 17 February 2027                [Page 2]
 
 Internet-Draft            Directwire Transport               August 2026
 
-
-     A.4.  Trade-Offs (Why v0.2 Shipped Without It)  . . . . . . . .  12
-   Author's Address  . . . . . . . . . . . . . . . . . . . . . . . .  12
 
 1.  Introduction
 
@@ -150,6 +147,10 @@ Internet-Draft            Directwire Transport               August 2026
    drafted) describe the message-oriented RPC transport, the low-latency
    media transport, and the edge data plane.
 
+   Directwire's candidate-discovery and relay-brokering design follows
+   the iroh peer-to-peer model [IROH].  This document was produced using
+   the xml2rfc version 3 vocabulary [RFC7991].
+
 2.  Conventions and Terminology
 
 2.1.  Key Words
@@ -159,7 +160,6 @@ Internet-Draft            Directwire Transport               August 2026
    "OPTIONAL" in this document are to be interpreted as described in BCP
    14 [RFC2119] [RFC8174] when, and only when, they appear in all
    capitals, as shown here.
-
 
 
 

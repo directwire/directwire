@@ -32,12 +32,6 @@
       describing the protocol as implemented by the reference implementation at
       version 0.2.</t>
     </abstract>
-    <note title="About This Document">
-      <t>The protocol presented here follows the iroh peer-to-peer model for
-      candidate discovery and relay brokering <xref target="IROH"/>. This
-      document was produced using the <tt>xml2rfc</tt> version 3 vocabulary
-      <xref target="RFC7991"/>.</t>
-    </note>
   </front>
 
   <middle>
@@ -70,6 +64,9 @@
       the Directwire protocol family. Companion documents (not yet drafted)
       describe the message-oriented RPC transport, the low-latency media
       transport, and the edge data plane.</t>
+      <t>Directwire's candidate-discovery and relay-brokering design follows the
+      iroh peer-to-peer model <xref target="IROH"/>. This document was produced
+      using the <tt>xml2rfc</tt> version 3 vocabulary <xref target="RFC7991"/>.</t>
     </section>
 
     <section anchor="conventions" numbered="true" toc="default">

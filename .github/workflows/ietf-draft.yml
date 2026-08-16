@@ -35,8 +35,10 @@ jobs:
 
       - name: idnits preflight (advisory)
         run: |
-          curl -fsSL -o /tmp/idnits https://www.ietf.org/tools/idnits/idnits
-          perl /tmp/idnits ietf/draft-directwire-agent-transport-00.txt \
+          curl -fsSL -o /tmp/idnits \
+            https://raw.githubusercontent.com/ietf-tools/idnits/main/idnits \
+            || { echo "::: could not download idnits (advisory — skipping)"; exit 0; }
+          bash /tmp/idnits ietf/draft-directwire-agent-transport-00.txt \
             || echo "::: idnits reported issues (see above) — advisory, not blocking"
 
       - name: Upload draft artifacts

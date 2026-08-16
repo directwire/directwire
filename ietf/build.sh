@@ -49,5 +49,5 @@ if command -v idnits >/dev/null 2>&1; then
   idnits "$BASE.txt" && echo "idnits: no issues"
 else
   echo "(idnits not installed; run it before submission:"
-  echo "  curl -fsSL -o idnits https://www.ietf.org/tools/idnits/idnits && perl idnits $BASE.txt)"
+  echo "  curl -fsSL -o idnits https://raw.githubusercontent.com/ietf-tools/idnits/main/idnits && bash idnits $BASE.txt)"
 fi
