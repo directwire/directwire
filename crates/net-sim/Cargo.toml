@@ -1,0 +1,14 @@
+[package]
+name = "net-sim"
+version.workspace = true
+edition = "2021"
+license.workspace = true
+description = "确定性网络注入测试基建：在真实 socket 之间插入可编程 UDP/TCP 中继（RTT/丢包/抖动/乱序/带宽）"
+publish = false
+
+[dependencies]
+socket2 = "0.5"
+
+# Windows 定时器分辨率 + UDP WSAECONNRESET 控制（见 lib.rs win 模块注释）
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Media", "Win32_System_IO", "Win32_Networking_WinSock"] }

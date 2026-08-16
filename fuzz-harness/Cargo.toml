@@ -1,0 +1,17 @@
+[package]
+name = "fuzz-harness"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "确定性 fuzz 引擎 + 目标层：五 crate 所有解析入口，脱 libFuzzer，本机可直接跑"
+
+# 目标层依赖全部被测 crate；引擎层（mutator/engine）零外部依赖。
+# 本 crate 是 workspace 成员：CI 的 `cargo test --workspace` 会跑 smoke 测试。
+# libFuzzer 通过 fuzz/ 包（detached，有 clang 的 CI 才构建）复用同一批目标，零重写。
+[dependencies]
+homa-rpc = { path = "../crates/homa-rpc" }
+moq-live = { path = "../crates/moq-live" }
+gm-pq-stack = { path = "../crates/gm-pq-stack" }
+# gm-pq feature 打开 p2p-mesh 的国密+后量子握手通道：parse_bind 是 p2p 消息解析入口之一
+p2p-mesh = { path = "../crates/p2p-mesh", features = ["gm-pq"] }
+xdp-edge = { path = "../crates/xdp-edge" }

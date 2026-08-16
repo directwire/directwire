@@ -1,0 +1,54 @@
+# cargo-fuzz 适配包（CI-only）：有 clang 的 runner 上把 fuzz-harness 同一批目标
+# 编译进 libFuzzer，零重写。本机无 C 编译器，确定性引擎跑 `cargo run -p fuzz-harness`。
+#
+# `[workspace]`（空表）使本包脱离根 workspace 独立解析：cargo-fuzz 在 fuzz/ 下
+# 构建时不与根 workspace 的成员/锁文件纠缠。
+#
+# 运行：
+#   cargo install cargo-fuzz && cargo fuzz run --fuzz-dir fuzz homa_transport -- -max_total_time=600
+[package]
+name = "directwire-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+fuzz-harness = { path = "../fuzz-harness" }
+
+[[bin]]
+name = "homa_transport"
+path = "fuzz_targets/homa_transport.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "moq_message"
+path = "fuzz_targets/moq_message.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "gmpq_handshake"
+path = "fuzz_targets/gmpq_handshake.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "p2p_proto"
+path = "fuzz_targets/p2p_proto.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "xdp_pipeline"
+path = "fuzz_targets/xdp_pipeline.rs"
+test = false
+doc = false
+bench = false

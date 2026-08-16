@@ -1,6 +1,15 @@
 [workspace]
 resolver = "2"
-members = ["crates/gm-pq-stack", "crates/p2p-mesh", "crates/moq-live", "crates/homa-rpc", "crates/xdp-edge"]
+members = [
+  "crates/gm-pq-stack",
+  "crates/p2p-mesh",
+  "crates/moq-live",
+  "crates/homa-rpc",
+  "crates/xdp-edge",
+  "crates/net-sim",
+  # 确定性 fuzz 引擎 + 目标层（目标函数同一批代码进 libFuzzer，见 fuzz/ 包）
+  "fuzz-harness",
+]
 
 [workspace.package]
 # Dual-licensed: choose Apache-2.0 or MulanPSL-2.0. Both are OSI-approved

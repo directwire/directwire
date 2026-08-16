@@ -1,0 +1,79 @@
+name: Fuzz
+
+# 两个引擎共用 fuzz-harness 里同一批目标函数，零重写：
+# - 确定性引擎（driver）：本地 + smoke 测试随主 CI 跑；
+# - libFuzzer（本 job）：ubuntu runner 自带 clang，覆盖引导 + 崩溃最小化。
+#
+# PR → 每目标 10 分钟冒烟；nightly → 每目标 2 小时长跑。
+# 崩溃（非零退出 + artifact 落盘）上传，随 PR 呈交复现输入。
+
+on:
+  pull_request:
+    paths:
+      - 'crates/**'
+      - 'fuzz-harness/**'
+      - 'fuzz/**'
+      - '.github/workflows/fuzz.yml'
+  schedule:
+    - cron: '17 3 * * *' # 每天 UTC 03:17（避开整点，与其它 repo 错峰）
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # PR 冒烟：libFuzzer 每目标 10 分钟。覆盖引导下 10 分钟足以把表层崩溃挖出来。
+  smoke:
+    name: libFuzzer smoke (${{ matrix.target }}, 10min)
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [homa_transport, moq_message, gmpq_handshake, p2p_proto, xdp_pipeline]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      - name: Fuzz ${{ matrix.target }}
+        run: >-
+          cargo fuzz run --fuzz-dir fuzz ${{ matrix.target }}
+          -- -max_total_time=600 -timeout=10 -rss_limit_mb=2048
+          -artifact_prefix=/tmp/directwire-fuzz/
+      - name: Upload crashes
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crash-${{ matrix.target }}-smoke
+          path: /tmp/directwire-fuzz/
+          if-no-files-found: ignore
+
+  # nightly 长跑：libFuzzer 每目标 2 小时。深挖组合状态空间。
+  longrun:
+    name: nightly longrun (${{ matrix.target }}, 2h)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [homa_transport, moq_message, gmpq_handshake, p2p_proto, xdp_pipeline]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      - name: Fuzz ${{ matrix.target }}
+        run: >-
+          cargo fuzz run --fuzz-dir fuzz ${{ matrix.target }}
+          -- -max_total_time=7200 -timeout=10 -rss_limit_mb=2048
+          -artifact_prefix=/tmp/directwire-fuzz/
+      - name: Upload crashes
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crash-${{ matrix.target }}-nightly
+          path: /tmp/directwire-fuzz/
+          if-no-files-found: ignore
