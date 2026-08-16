@@ -168,12 +168,21 @@ def fill_maps():
         bytes.fromhex("112233445566"),
         b"\x00\x00",
     )
-    # backend.ip = 10.0.0.100（u32 host 序，内核直接赋给外层头 __be32 daddr）
+    # backend.ip = 10.0.0.100。字段是 host 序 __u32，BPF 直接赋给外层头
+    # __be32 daddr（无字节序转换）；x86 小端上 wire 字节就是内存字节，要显示
+    # 0A 00 00 64 就必须按 little-endian 存这个整数值：
+    #   int.from_bytes(inet_aton("10.0.0.100"), "little") == 0x6400000A
+    # （0x0A000064 是网络序数值，存成小端会变成 100.0.0.10，是常见坑）
     be = struct.pack(
-        "<I6sH", 0x0A000064, bytes.fromhex("aabbccddeeff"), 0,
+        "<I6sH",
+        int.from_bytes(socket.inet_aton(BACKEND_IP), "little"),
+        bytes.fromhex("aabbccddeeff"), 0,
     )
     ck = SRC + DST + struct.pack("!HH", SPORT, DPORT) + b"\x06" + b"\x00\x00\x00"
-    cv = struct.pack("<IQ", 0, 0)  # backend_idx=0, last_seen=0
+    # conn_value { u32 backend_idx; u64 last_seen_ns; } 在 bpf 目标上有 4B
+    # 对齐填充，实际大小 16B（非 12B）；bpftool map update 的 value 必须精确
+    # 匹配 bytes_value，故显式补 4 个 pad 字节。
+    cv = struct.pack("<I4xQ", 0, 0)  # backend_idx=0, last_seen=0
 
     map_update(bpf_map_id("config"), b"\x00\x00\x00\x00", cfg)
     map_update(bpf_map_id("backends"), b"\x00\x00\x00\x00", be)
@@ -215,21 +224,42 @@ def test_rate_drop():
     if out is not None:
         raise SystemExit("FAIL: 限速归零后仍收到转发包")
 
-    # 校验 ST_DROP_RATE（stats 下标 1）已增长。PERCPU_ARRAY 的 -j 输出形如
-    # value: [ [per-cpu 0 的 8 个 u64], [per-cpu 1 ...], ... ]，逐 CPU 取下标 1 求和。
+    # 校验 ST_DROP_RATE（stats 下标 1）已增长。本 map 是单 u64 值的 PERCPU_ARRAY，
+    # 每条记录对应当前 ARRAY 下标；bpftool 的 -j 形态跨版本不一，这里兼容两种：
+    #   A. "value": [cpu0, cpu1, ...]         每 CPU 一个数（旧版扁平）
+    #   B. "values": [{"cpu":0,"value":0},...] BTF 逐 CPU 对象（v7 当前）
+    # 只累加 key==1（ST_DROP_RATE）槽位的 per-CPU 计数。
     r = sh("bpftool map dump id %d -j" % bpf_map_id("stats"))
     import json
     stats = json.loads(r.stdout)
     drop_rate = 0
     for entry in stats:
-        val = entry["value"]
-        if isinstance(val, list) and val and isinstance(val[0], list):
-            for cpu in val:
-                if len(cpu) > 1:
-                    drop_rate += int(cpu[1])
-        elif isinstance(val, list) and len(val) > 1:
-            drop_rate += int(val[1])
+        key = entry.get("key")
+        if key != 1 and str(key) != "1":
+            continue
+        arr = entry.get("values") if "values" in entry else entry.get("value")
+        if not isinstance(arr, list):
+            continue
+        for x in arr:
+            if isinstance(x, dict):                 # 形态 B
+                v = x.get("value")
+                if isinstance(v, (int, float)):
+                    drop_rate += int(v)
+                elif isinstance(v, dict):           # BTF 结构形态兜底
+                    for k in v.values():
+                        try:
+                            drop_rate += int(k)
+                        except (TypeError, ValueError):
+                            pass
+            else:                                    # 形态 A
+                try:
+                    drop_rate += int(x)
+                except (TypeError, ValueError):
+                    pass
     if drop_rate <= 0:
+        # CI 日志不可见（匿名仓库 403），把原始 JSON 打到 ::error:: 便于诊断
+        print(f"::error::raw stats dump for diagnosis:\n{r.stdout[:800]}",
+              file=sys.stderr)
         raise SystemExit("FAIL: stats 未计 ST_DROP_RATE")
     log(f"OK: 包被丢弃，stats[ST_DROP_RATE]={drop_rate} ✓")
 

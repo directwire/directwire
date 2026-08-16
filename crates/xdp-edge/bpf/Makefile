@@ -1,6 +1,8 @@
 # xdp-edge BPF 对象构建
 # 依赖：clang >= 12（支持 -target bpf）、libbpf 头文件、bpftool
-# Ubuntu: apt install clang llvm libbpf-dev linux-headers-$(uname -r) bpftool
+# Ubuntu: apt install clang llvm libbpf-dev linux-libc-dev iproute2
+#         （bpftool 无独立 apt 包，CI 里从 libbpf/bpftool 源码构建；
+#          勿用 linux-headers-$(uname -r)：版本耦合且头文件装在 /usr/src）
 
 CLANG    ?= clang
 LLC      ?= llc

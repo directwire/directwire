@@ -63,7 +63,7 @@ Linux 机器（`sudo python3 ci_datapath_test.py`）复现。
 ## 已知简化（产品化 TODO）
 
 - **MAC 重写已实现，解析委托控制面**：XDP_TX 回注前将 `eth->h_dest/h_source` 重写为 `backend_info.dmac` / `config.gateway_smac`；dmac 全 0（控制面尚未 ARP 解析）时丢包并计 `ST_DROP_NOMAC`，不会把坏帧发上链路；
-- **校验和**：外层 IPv4 头用 `bpf_csum_diff` + 手动折叠计算（内层头未改动，无需 `bpf_l3_csum_replace`）；
+- **校验和**：外层 IPv4 头纯算术手算（RFC 1071，`xdp_edge.c::ip_checksum`）——`bpf_csum_diff` 不在 XDP 可用 helper 列表，硬用会在验证器加载阶段失败（内层头未改动，无需 `bpf_l3_csum_replace`）；
 - **限速 map 满**：`ratelimit` 为 LRU_HASH，内核在满时自动淘汰最久未活跃源（update 不因满失败）；`rl_state.occupancy` 原子计数插入过的源数，超过 `RATELIMIT_SIZE` 即计 `ST_RL_EVICT` 供控制面告警扩容；
 - **连接 TTL**：依赖 LRU 淘汰 + 控制面周期清扫（Rust 侧 `control::sweeper` 已实现该节奏），数据面 lookup 路径做惰性过期兜底；
 - Maglev LUT 由控制面双缓冲构建后热下发（Rust 侧 `control::lut_publish` 已实现原子切换语义），数据面不参与构建（与 Katran 一致）。

@@ -40,14 +40,32 @@ jobs:
             tail -6 /tmp/aptu.log | sed 's/^/::error::/' || true
             exit 1
           fi
-          for p in clang llvm libbpf-dev bpftool iproute2 linux-libc-dev; do
+          # 说明：bpftool 在这版 runner 的 Ubuntu 上没有独立 apt 包
+          # （"no installation candidate"）；linux-tools-generic 又内核版本
+          # 耦合不稳。改为从官方 libbpf/bpftool 源码构建（确定性、无版本
+          # 耦合）。libelf-dev / zlib1g-dev 是 bpftool 的构建依赖。
+          for p in clang llvm libbpf-dev iproute2 linux-libc-dev libelf-dev zlib1g-dev; do
             if ! sudo apt-get install -y --no-install-recommends "$p" >/tmp/apt.log 2>&1; then
               echo "::error::apt install failed for package: $p"
               grep -m2 -E "E:|Unable|has no installation candidate" /tmp/apt.log | sed 's/^/::error::/' || true
               exit 1
             fi
           done
-          echo "::notice::deps installed: clang llvm libbpf-dev bpftool iproute2 linux-libc-dev"
+          if ! command -v bpftool >/dev/null 2>&1; then
+            echo "::notice::building bpftool from source (libbpf/bpftool v7.7.0)"
+            git clone --depth 1 --branch v7.7.0 https://github.com/libbpf/bpftool /tmp/bpftool >/dev/null 2>&1 || {
+              echo "::error::bpftool clone failed"; exit 1; }
+            git -C /tmp/bpftool submodule update --init --recursive >/dev/null 2>&1 || {
+              echo "::error::bpftool submodule init failed"; exit 1; }
+            make -C /tmp/bpftool/src -j"$(nproc)" >/tmp/bpftool_build.log 2>&1 || {
+              echo "::error::bpftool build failed"
+              tail -10 /tmp/bpftool_build.log | sed 's/^/::error::/' || true
+              exit 1; }
+            sudo cp /tmp/bpftool/src/bpftool /usr/local/bin/bpftool
+            echo "::notice::bpftool installed (source build)"
+          fi
+          bpftool version || echo "::error::bpftool still not runnable"
+          echo "::notice::deps installed: clang llvm libbpf-dev iproute2 linux-libc-dev libelf-dev zlib1g-dev + bpftool"
 
       - name: Compile xdp_edge.o (clang -target bpf, -Wall -Werror)
         run: make -C crates/xdp-edge/bpf

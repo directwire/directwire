@@ -151,13 +151,21 @@ static __always_inline int syn_is_flood(struct syn_window *w, __u64 now_ns,
     return w->syn >= cfg->syn_threshold && w->syn > w->ack * cfg->syn_ack_ratio;
 }
 
-/* 16 位反码和折叠（bpf_csum_diff 的返回值 -> 标准校验和） */
-static __always_inline __sum16 csum_fold(__u64 csum)
+/* IP 头校验和（RFC 1071）。外层头 20B = 10 个 16 位字；逐字节取
+ * (hi<<8)|lo 即网络序字面值，故计算与主机字节序无关。所有循环都是常量
+ * 边界，验证器直接放行。刻意不用 bpf_csum_diff——该 helper 不在 XDP 的
+ * 可用函数列表里（仅在 SOCKET_FILTER/SCHED_CLS 等类型可用）。 */
+static __always_inline __sum16 ip_checksum(const void *data)
 {
-    /* bpf_csum_diff 返回 32 位反码累加和（可能含多次进位），先折到 16 位 */
-    csum = (csum & 0xffff) + (csum >> 16);
-    csum = (csum & 0xffff) + (csum >> 16);
-    return (__sum16)~csum;
+    const __u8 *b = (const __u8 *)data;
+    __u64 sum = 0;
+#pragma unroll
+    for (__u32 i = 0; i < sizeof(struct iphdr) / 2; i++)
+        sum += (b[i * 2] << 8) | b[i * 2 + 1];
+    /* 10 字累加和 < 2^20，折两次必收敛到 16 位（无数据相关循环） */
+    sum = (sum & 0xffff) + (sum >> 16);
+    sum = (sum & 0xffff) + (sum >> 16);
+    return (__sum16)~sum;
 }
 
 /*
@@ -213,12 +221,8 @@ static __always_inline int ipip_encap_tx(struct xdp_md *ctx,
     outer->saddr = cfg->gateway_ip;   /* 网关内网 IP，控制面写入 */
     outer->daddr = be->ip;
     outer->check = 0;
-    /* 用 bpf_csum_diff 计算外层头校验和（硬件无关、验证器友好） */
-    {
-        __u64 csum = bpf_csum_diff(0, 0, (__be32 *)outer,
-                                   sizeof(struct iphdr), 0);
-        outer->check = csum_fold(csum);
-    }
+    /* 外层头校验和：清零后手算（RFC 1071，XDP 内无 bpf_csum_diff） */
+    outer->check = ip_checksum(outer);
     return XDP_TX;
 }
 
