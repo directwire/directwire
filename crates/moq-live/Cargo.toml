@@ -36,7 +36,7 @@ gm-pq-stack = { version = "0.1.0", path = "../gm-pq-stack", optional = true }
 
 [dev-dependencies]
 # 仅示例/测试用：自签名证书生成（ring 后端）
-rcgen = { version = "0.13", default-features = false, features = ["ring", "pem"] }
+rcgen = { version = "0.14", default-features = false, features = ["ring", "pem"] }
 
 [[example]]
 name = "gmpq_demo"
