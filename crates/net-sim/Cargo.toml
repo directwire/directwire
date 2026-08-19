@@ -11,4 +11,4 @@ socket2 = "0.5"
 
 # Windows 定时器分辨率 + UDP WSAECONNRESET 控制（见 lib.rs win 模块注释）
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Media", "Win32_System_IO", "Win32_Networking_WinSock"] }
+windows-sys = { version = "0.61", features = ["Win32_Media", "Win32_System_IO", "Win32_Networking_WinSock"] }
