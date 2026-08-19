@@ -7,7 +7,7 @@ description = "确定性网络注入测试基建：在真实 socket 之间插入
 publish = false
 
 [dependencies]
-socket2 = "0.5"
+socket2 = "0.6"
 
 # Windows 定时器分辨率 + UDP WSAECONNRESET 控制（见 lib.rs win 模块注释）
 [target.'cfg(windows)'.dependencies]
