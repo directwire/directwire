@@ -13,7 +13,7 @@ categories = ["network-programming"]
 # Async runtime & networking
 tokio = { version = "1", features = ["full"] }
 # Node identity: ed25519 public key == NodeId
-ed25519-dalek = { version = "2", features = ["rand_core", "zeroize"] }
+ed25519-dalek = { version = "3", features = ["rand_core", "zeroize"] }
 # NodeId display form (SHA-256 hash) and session key derivation
 sha2 = "0.10"
 # Randomness (key generation)
