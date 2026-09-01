@@ -44,7 +44,7 @@ jobs:
           -artifact_prefix=/tmp/directwire-fuzz/
       - name: Upload crashes
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: crash-${{ matrix.target }}-smoke
           path: /tmp/directwire-fuzz/
@@ -72,7 +72,7 @@ jobs:
           -artifact_prefix=/tmp/directwire-fuzz/
       - name: Upload crashes
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: crash-${{ matrix.target }}-nightly
           path: /tmp/directwire-fuzz/
