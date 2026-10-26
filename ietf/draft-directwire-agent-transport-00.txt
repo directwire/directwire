@@ -2,10 +2,10 @@
 
 
 
-Network Working Group                                         Directwire
-Internet-Draft                  Directwire (anonymous contributor group)
-Intended status: Informational                            16 August 2026
-Expires: 17 February 2027
+Network Working Group                                             H. Han
+Internet-Draft                                                Directwire
+Intended status: Informational                           26 October 2026
+Expires: 29 April 2027
 
 
     Directwire — An Identity-Centric Transport for Autonomous Agents
@@ -47,15 +47,15 @@ Status of This Memo
    time.  It is inappropriate to use Internet-Drafts as reference
    material or to cite them other than as "work in progress."
 
-   This Internet-Draft will expire on 17 February 2027.
+   This Internet-Draft will expire on 29 April 2027.
 
 
 
 
 
-Directwire              Expires 17 February 2027                [Page 1]
+Han                       Expires 29 April 2027                 [Page 1]
 
-Internet-Draft            Directwire Transport               August 2026
+Internet-Draft            Directwire Transport              October 2026
 
 
 Copyright Notice
@@ -109,9 +109,9 @@ Table of Contents
 
 
 
-Directwire              Expires 17 February 2027                [Page 2]
+Han                       Expires 29 April 2027                 [Page 2]
 
-Internet-Draft            Directwire Transport               August 2026
+Internet-Draft            Directwire Transport              October 2026
 
 
 1.  Introduction
@@ -165,9 +165,9 @@ Internet-Draft            Directwire Transport               August 2026
 
 
 
-Directwire              Expires 17 February 2027                [Page 3]
+Han                       Expires 29 April 2027                 [Page 3]
 
-Internet-Draft            Directwire Transport               August 2026
+Internet-Draft            Directwire Transport              October 2026
 
 
 2.2.  Byte Order and Labels
@@ -221,9 +221,9 @@ Internet-Draft            Directwire Transport               August 2026
 
 
 
-Directwire              Expires 17 February 2027                [Page 4]
+Han                       Expires 29 April 2027                 [Page 4]
 
-Internet-Draft            Directwire Transport               August 2026
+Internet-Draft            Directwire Transport              October 2026
 
 
 4.  Transport Overview
@@ -277,9 +277,9 @@ Internet-Draft            Directwire Transport               August 2026
 
 
 
-Directwire              Expires 17 February 2027                [Page 5]
+Han                       Expires 29 April 2027                 [Page 5]
 
-Internet-Draft            Directwire Transport               August 2026
+Internet-Draft            Directwire Transport              October 2026
 
 
 6.  NAT Traversal (Hole Punching)
@@ -333,9 +333,9 @@ Internet-Draft            Directwire Transport               August 2026
 
 
 
-Directwire              Expires 17 February 2027                [Page 6]
+Han                       Expires 29 April 2027                 [Page 6]
 
-Internet-Draft            Directwire Transport               August 2026
+Internet-Draft            Directwire Transport              October 2026
 
 
 7.2.  Optional GM-PQ Channel
@@ -389,9 +389,9 @@ Internet-Draft            Directwire Transport               August 2026
 
 
 
-Directwire              Expires 17 February 2027                [Page 7]
+Han                       Expires 29 April 2027                 [Page 7]
 
-Internet-Draft            Directwire Transport               August 2026
+Internet-Draft            Directwire Transport              October 2026
 
 
    *Forward secrecy.* Breaking the hybrid session requires breaking both
@@ -445,9 +445,9 @@ Internet-Draft            Directwire Transport               August 2026
 
 
 
-Directwire              Expires 17 February 2027                [Page 8]
+Han                       Expires 29 April 2027                 [Page 8]
 
-Internet-Draft            Directwire Transport               August 2026
+Internet-Draft            Directwire Transport              October 2026
 
 
    *  *The relay sees only ciphertext.* The relay cannot decrypt,
@@ -501,9 +501,9 @@ Internet-Draft            Directwire Transport               August 2026
 
 
 
-Directwire              Expires 17 February 2027                [Page 9]
+Han                       Expires 29 April 2027                 [Page 9]
 
-Internet-Draft            Directwire Transport               August 2026
+Internet-Draft            Directwire Transport              October 2026
 
 
    [FIPS203]  National Institute of Standards and Technology, "Module-
@@ -557,9 +557,9 @@ Appendix A.  v0.3 Candidate — Explicit DONE Message Replacing Implicit
 
 
 
-Directwire              Expires 17 February 2027               [Page 10]
+Han                       Expires 29 April 2027                [Page 10]
 
-Internet-Draft            Directwire Transport               August 2026
+Internet-Draft            Directwire Transport              October 2026
 
 
 A.1.  Background: The Short-Message Loss Dead-Zone (v0.2 Problem)
@@ -613,9 +613,9 @@ A.3.  Candidate Design (v0.3)
 
 
 
-Directwire              Expires 17 February 2027               [Page 11]
+Han                       Expires 29 April 2027                [Page 11]
 
-Internet-Draft            Directwire Transport               August 2026
+Internet-Draft            Directwire Transport              October 2026
 
 
    *  This makes request and response loss symmetric: both are
@@ -643,9 +643,9 @@ A.4.  Trade-Offs (Why v0.2 Shipped Without It)
 
 Author's Address
 
+   Han Changshen
    Directwire
-   Directwire (anonymous contributor group)
-   Email: draft-directwire@directwire.example
+   Email: 123090150@link.cuhk.edu.cn
 
 
 
@@ -669,4 +669,4 @@ Author's Address
 
 
 
-Directwire              Expires 17 February 2027               [Page 12]
+Han                       Expires 29 April 2027                [Page 12]

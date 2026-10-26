@@ -6,13 +6,13 @@
   <front>
     <title abbrev="Directwire Transport">Directwire — An Identity-Centric Transport for Autonomous Agents</title>
     <seriesInfo name="Internet-Draft" value="draft-directwire-agent-transport-00"/>
-    <author fullname="Directwire">
-      <organization>Directwire (anonymous contributor group)</organization>
+    <author initials="H." surname="Han" fullname="Han Changshen">
+      <organization>Directwire</organization>
       <address>
-        <email>draft-directwire@directwire.example</email>
+        <email>123090150@link.cuhk.edu.cn</email>
       </address>
     </author>
-    <date year="2026" month="August" day="16"/>
+    <date year="2026" month="October" day="26"/>
     <area>Transport</area>
     <abstract>
       <t>This document specifies <em>Directwire</em>, a transport and discovery
